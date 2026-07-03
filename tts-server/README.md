@@ -6,8 +6,8 @@ A small local HTTP server that loads a [Qwen3-TTS](https://github.com/QwenLM/Qwe
 
 Two ways to pick a voice, both configured via `TARS_TTS_MODEL` + one more variable (see Configuration below):
 
-- **Voice cloning** (`Base` model, the default) — clones whatever reference clip you point it at (`TARS_TTS_REF_AUDIO`/`TARS_TTS_REF_TEXT`). No built-in voices; quality depends entirely on the reference clip.
-- **Named voices** (`CustomVoice` model) — 9 built-in speakers, no reference clip needed at all. Set `TARS_TTS_VOICE` to one of them. See [Voices](#voices) below.
+- **Named voices** (`CustomVoice` model, the default — currently set to `ryan`) — 9 built-in speakers, no reference clip needed at all. Set `TARS_TTS_VOICE` to one of them. See [Voices](#voices) below.
+- **Voice cloning** (`Base` model) — clones whatever reference clip you point it at (`TARS_TTS_REF_AUDIO`/`TARS_TTS_REF_TEXT`). No built-in voices; quality depends entirely on the reference clip. Set `TARS_TTS_VOICE=` (empty) and `TARS_TTS_MODEL` to a `-Base-` variant to use this instead.
 
 ## Setup
 
@@ -21,7 +21,7 @@ Two ways to pick a voice, both configured via `TARS_TTS_MODEL` + one more variab
 
    This pulls in `mlx-audio` (which pulls in `mlx` itself), `soundfile`, and `python-dotenv`. Runs natively on Apple Silicon's GPU via MLX — no CUDA, no PyTorch, no `flash-attn` needed.
 
-2. **Configure** (optional — defaults to voice cloning with the official demo clip if skipped):
+2. **Configure** (optional — defaults to the `ryan` named voice if skipped):
 
    ```bash
    cp .env.example .env
@@ -45,7 +45,7 @@ Two ways to pick a voice, both configured via `TARS_TTS_MODEL` + one more variab
      python server.py
      ```
 
-     First run downloads the MLX model weights from Hugging Face and, for voice-cloning mode, caches the reference clip locally. Wait for `[tars-tts] ready on http://127.0.0.1:8008 ...` before starting TARS. (The auto-start above is Electron-only for now.)
+     First run downloads the MLX model weights from Hugging Face and, in voice-cloning mode, caches the reference clip locally. Wait for `[tars-tts] ready on http://127.0.0.1:8008 ...` before starting TARS. (The auto-start above is Electron-only for now.)
 
    Either way, if this server isn't running or unreachable when TARS tries to speak, it automatically falls back to the macOS `say` voice — nothing else breaks.
 
@@ -56,8 +56,8 @@ Set these in `tts-server/.env` (see `.env.example`).
 | Variable | Default | Description |
 |---|---|---|
 | `TARS_TTS_PORT` | `8008` | Port to listen on — must match `QWEN_TTS_URL` in the main app's `.env` |
-| `TARS_TTS_MODEL` | `mlx-community/Qwen3-TTS-12Hz-1.7B-Base-8bit` | Hugging Face model id (MLX build). Use a `-Base-` variant for voice cloning, or a `-CustomVoice-` variant with `TARS_TTS_VOICE` set for named voices. The 8-bit quantized variant generates at ~3x real-time on Apple Silicon — the bf16 variant is ~0.7x real-time (slower than playback), which causes audible stutter/gaps on longer responses as `sox` outruns generation. Stick with 8-bit unless you've verified bf16 keeps up on your hardware. |
-| `TARS_TTS_VOICE` | unset | Named speaker — **only works with a `-CustomVoice-` model**. See [Voices](#voices). When set, this takes over from voice cloning entirely (`TARS_TTS_REF_*` below are ignored). |
+| `TARS_TTS_MODEL` | `mlx-community/Qwen3-TTS-12Hz-1.7B-CustomVoice-8bit` | Hugging Face model id (MLX build). Use a `-CustomVoice-` variant with `TARS_TTS_VOICE` set for named voices (the default), or a `-Base-` variant for voice cloning. The 8-bit quantized variant generates at ~3x real-time on Apple Silicon — the bf16 variant is ~0.7x real-time (slower than playback), which causes audible stutter/gaps on longer responses as `sox` outruns generation. Stick with 8-bit unless you've verified bf16 keeps up on your hardware. |
+| `TARS_TTS_VOICE` | `ryan` | Named speaker — **only works with a `-CustomVoice-` model**. See [Voices](#voices). Set to an empty string (`TARS_TTS_VOICE=`) to fall back to voice cloning instead (also switch `TARS_TTS_MODEL` to a `-Base-` variant) — `TARS_TTS_REF_*` below are ignored while a voice is set. |
 | `TARS_TTS_LANGUAGE` | `English` | Passed to `generate()` as `lang_code` |
 | `TARS_TTS_SAMPLE_RATE` | `24000` | Must match what the model actually outputs — only change this if you swap in a different model |
 | `TARS_TTS_STREAMING_INTERVAL` | `0.32` | Seconds of audio per streamed chunk — smaller is lower-latency per chunk but more per-chunk overhead |

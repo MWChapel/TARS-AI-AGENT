@@ -28,7 +28,7 @@ from mlx_audio.tts.utils import load_model
 load_dotenv()
 
 PORT = int(os.environ.get("TARS_TTS_PORT", "8008"))
-MODEL_ID = os.environ.get("TARS_TTS_MODEL", "mlx-community/Qwen3-TTS-12Hz-1.7B-Base-8bit")
+MODEL_ID = os.environ.get("TARS_TTS_MODEL", "mlx-community/Qwen3-TTS-12Hz-1.7B-CustomVoice-8bit")
 LANGUAGE = os.environ.get("TARS_TTS_LANGUAGE", "English")
 SAMPLE_RATE = int(os.environ.get("TARS_TTS_SAMPLE_RATE", "24000"))
 STREAMING_INTERVAL = float(os.environ.get("TARS_TTS_STREAMING_INTERVAL", "0.32"))
@@ -36,8 +36,10 @@ STREAMING_INTERVAL = float(os.environ.get("TARS_TTS_STREAMING_INTERVAL", "0.32")
 # Named voice (CustomVoice models only) -- one of: serena, vivian, uncle_fu,
 # ryan, aiden, ono_anna, sohee, eric, dylan. When set, this takes over from
 # voice cloning entirely (below) -- requires TARS_TTS_MODEL to be a CustomVoice
-# variant, e.g. mlx-community/Qwen3-TTS-12Hz-1.7B-CustomVoice-8bit.
-VOICE = os.environ.get("TARS_TTS_VOICE", "").strip()
+# variant, e.g. mlx-community/Qwen3-TTS-12Hz-1.7B-CustomVoice-8bit. Set this to
+# an empty string (TARS_TTS_VOICE=) to fall back to voice cloning instead --
+# you'll also need to point TARS_TTS_MODEL at a -Base- variant.
+VOICE = os.environ.get("TARS_TTS_VOICE", "ryan").strip()
 
 if VOICE and "customvoice" not in MODEL_ID.lower():
     print(
