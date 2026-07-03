@@ -562,6 +562,15 @@ window.tars.on('call-log', ({ direction, text }) => addCallLogEntry(direction, t
 
 window.tars.on('telemetry-spectrum', (bands) => applySpectrum(bands));
 
+// The initial getConfig() check can catch the Qwen server mid-load (still
+// loading MLX weights) and report "unreachable" -- main.ts retries in the
+// background and pushes corrections here as they resolve.
+window.tars.on('voice-info', ({ engine, voice }) => {
+  els.aVoiceEngine.textContent = engine;
+  els.aVoiceLabel.textContent = voice;
+  els.cfgVoice.textContent = voice;
+});
+
 window.tars.on('tts-state', ({ enabled }) => {
   app.ttsEnabled = enabled;
   els.ttsLbl.textContent = `TTS:${enabled ? 'ON' : 'OFF'}`;

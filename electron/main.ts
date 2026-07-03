@@ -57,6 +57,25 @@ function sysMsg(text: string): void {
   send('system-message', { text });
 }
 
+// ── Voice info (analytics VOICE panel) ────────────────────────────────────────
+//
+// getVoiceInfo() is also checked once synchronously in get-config below (for
+// the very first paint), but the Qwen server can still be mid-load at that
+// exact moment -- MLX model loading can take many seconds, especially on a
+// cold cache -- so that one-shot check can catch it as "unreachable" and the
+// UI would just show that stale label for the rest of the session even once
+// the server finishes loading and real speech works fine. This retries with
+// backoff until it actually resolves, pushing corrections to the renderer.
+
+async function refreshVoiceInfoUntilReady(): Promise<void> {
+  for (let i = 0; i < 30; i++) {
+    const info = await getVoiceInfo();
+    send('voice-info', info);
+    if (!info.voice.startsWith('UNREACHABLE')) return;
+    await new Promise((resolve) => setTimeout(resolve, 2000));
+  }
+}
+
 // ── Whisper setup ─────────────────────────────────────────────────────────────
 
 function initWhisper(): void {
@@ -242,6 +261,7 @@ async function createWindow(): Promise<void> {
       `HUMOR ${config.tars.humor}%  HONESTY ${config.tars.honesty}%  COOPERATION 100%`
     );
     initWhisper();
+    void refreshVoiceInfoUntilReady();
   });
 
   win.loadFile(

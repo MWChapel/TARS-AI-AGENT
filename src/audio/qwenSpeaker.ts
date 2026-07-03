@@ -95,6 +95,12 @@ export class QwenSpeaker implements SpeakerLike {
   private usingFallback = false;
   private abortController: AbortController | null = null;
   private spectrumTimers = new Set<NodeJS.Timeout>();
+  // stop() intentionally aborts the in-flight request, which makes
+  // streamAndPlay() throw just like a genuine connection failure would --
+  // without this flag, speak()'s catch block couldn't tell the two apart and
+  // would "fall back" to speaking the whole response via `say` right after
+  // the user asked TARS to stop talking.
+  private stoppedIntentionally = false;
 
   onSpectrum?: (bands: number[]) => void;
 
@@ -109,9 +115,12 @@ export class QwenSpeaker implements SpeakerLike {
     const clean = cleanForSpeech(text);
     if (!clean) return;
 
+    this.stoppedIntentionally = false;
     try {
       await this.streamAndPlay(clean);
     } catch (err) {
+      if (this.stoppedIntentionally) return;
+
       process.stderr.write(
         `[qwen-tts] unreachable, falling back to system voice: ${err instanceof Error ? err.message : String(err)}\n`
       );
@@ -147,6 +156,14 @@ export class QwenSpeaker implements SpeakerLike {
       { stdio: ['pipe', 'ignore', 'pipe'] }
     );
     this.process = sox;
+
+    // Writing to sox's stdin after the process has been killed (e.g. via
+    // stop()) can fail with EPIPE. Without a listener here, Node treats that
+    // as an unhandled 'error' event and crashes the whole app -- this is
+    // expected any time playback is stopped mid-stream, not a real failure,
+    // so just swallow it; the abort/kill logic elsewhere already handles
+    // actually stopping things.
+    sox.stdin.on('error', () => { /* expected on stop() racing an in-flight write */ });
 
     // If sox dies mid-stream, abort the fetch immediately instead of continuing
     // to read (and discard) the rest of the response -- otherwise we'd keep the
@@ -225,6 +242,7 @@ export class QwenSpeaker implements SpeakerLike {
   }
 
   stop(): void {
+    this.stoppedIntentionally = true;
     this.abortController?.abort();
     this.clearSpectrumTimers();
     if (this.process) {
