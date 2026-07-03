@@ -1,6 +1,8 @@
 import blessed from 'blessed';
 import { AudioRecorder } from '../audio/recorder';
-import { Speaker } from '../audio/speaker';
+import { SpeakerLike } from '../audio/speaker';
+import { createSpeaker } from '../audio/createSpeaker';
+import { getVoiceInfo, VoiceInfo } from '../audio/voiceInfo';
 import { Transcriber, type ProgressInfo } from '../stt/transcriber';
 import { TARSClient, CallStats } from '../llm/client';
 import { config } from '../config';
@@ -72,7 +74,7 @@ export class TARSTerminal {
   private streamBuffer = '';
 
   private recorder = new AudioRecorder();
-  private speaker = new Speaker();
+  private speaker: SpeakerLike = createSpeaker();
   private transcriber = new Transcriber();
   private tarsClient = new TARSClient();
   private ttsEnabled = config.tts.enabled;
@@ -80,6 +82,12 @@ export class TARSTerminal {
   // Whisper model load tracking
   private whisperState: 'loading' | 'ready' | 'disabled' | 'error' = 'disabled';
   private whisperProgress = '';
+
+  // Populated async (a live /health check when Qwen TTS is in use) -- see constructor.
+  private voiceInfo: VoiceInfo = {
+    engine: config.qwenTts.enabled ? 'QWEN3-TTS' : 'SAY',
+    voice: config.qwenTts.enabled ? 'CHECKING...' : config.tts.voice.toUpperCase(),
+  };
 
   private analytics: Analytics = {
     totalTokensIn: 0,
@@ -137,6 +145,11 @@ export class TARSTerminal {
       };
       this.transcriber.loadModel();
     }
+
+    getVoiceInfo().then((v) => {
+      this.voiceInfo = v;
+      this.render();
+    });
 
     this.render();
   }
@@ -267,6 +280,10 @@ export class TARSTerminal {
       sep,
       c.dim(' STATE'),
       ` ${stateLabel[this.state]}`,
+      sep,
+      c.dim(' VOICE'),
+      row('ENGINE', this.voiceInfo.engine),
+      ` ${c.mid(this.voiceInfo.voice.slice(0, 22))}`,
       sep,
       row('HUMOR', `${config.tars.humor}%`),
       row('HONESTY', `${config.tars.honesty}%`),

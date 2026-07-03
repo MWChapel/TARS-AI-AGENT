@@ -50,6 +50,8 @@ const els = {
   aHumor:        $('a-humor'),
   aHonesty:      $('a-honesty'),
   aTts:          $('a-tts'),
+  aVoiceEngine:  $('a-voice-engine'),
+  aVoiceLabel:   $('a-voice-label'),
   callLog:       $('call-log'),
   cfgHumor:      $('cfg-humor'),
   cfgHonesty:    $('cfg-honesty'),
@@ -191,7 +193,6 @@ function appendToken(token) {
   const text = document.createTextNode(token);
   app.streamEl.insertBefore(text, cursor);
   scrollToBottom();
-  feedTelemetryChar(token);
 }
 
 function finalizeResponse() {
@@ -265,24 +266,30 @@ function addCallLogEntry(direction, text) {
   }
 }
 
-// ── Telemetry (purely cosmetic — reacts to incoming response words) ────────────
+// ── Telemetry (purely cosmetic — a spectrum analyzer for the TTS voice output) ─
+//
+// Each bar tracks one frequency band of the actual audio being spoken (fed by
+// QwenSpeaker's onSpectrum -> main.ts -> 'telemetry-spectrum' IPC). When TTS
+// isn't speaking (say-fallback voice, or between turns) it idles at low random
+// noise instead, same as before.
 
 const TELEMETRY_BAR_COUNT = 10;
 const TELEMETRY_IDLE_MAX_PCT = 15;
 const TELEMETRY_TICK_MS = 400;
 const TELEMETRY_DECAY = 0.82;   // per-tick blend toward the idle baseline
-const TELEMETRY_LABEL_CHARS = '0123456789ABCDEF';
+// Redraw rate for the speaking-driven animation loop -- deliberately much
+// faster than the ~320ms cadence real spectrum data arrives at, so bars are
+// still animating smoothly between updates instead of only moving 3x/sec.
+const TELEMETRY_ANIM_MS = 40;
+const TELEMETRY_ATTACK = 0.65;   // toward a louder target -- snap up fast
+const TELEMETRY_RELEASE = 0.3;   // toward a quieter target -- fall a bit slower
+// Lower edge (Hz) of each band in BAND_EDGES from src/audio/qwenSpeaker.ts --
+// keep in sync if that array changes.
+const TELEMETRY_LABELS = ['60', '150', '300', '500', '800', '1.3K', '2K', '3.2K', '5K', '8K'];
 
 let telemetryBars = [];   // [{ fill, label, value }]
-let telemetryWordBuffer = '';
-
-function randomTelemetryLabel() {
-  let s = '';
-  for (let i = 0; i < 2; i++) {
-    s += TELEMETRY_LABEL_CHARS[Math.floor(Math.random() * TELEMETRY_LABEL_CHARS.length)];
-  }
-  return s;
-}
+let telemetrySpeaking = false;
+let telemetryTargets = null;   // latest real spectrum values while speaking
 
 function initTelemetry() {
   const container = $('telemetry-bars');
@@ -300,16 +307,17 @@ function initTelemetry() {
 
     const label = document.createElement('div');
     label.className = 'bar-label';
-    label.textContent = randomTelemetryLabel();
+    label.textContent = TELEMETRY_LABELS[i] ?? '';
 
     bar.appendChild(track);
     bar.appendChild(label);
     container.appendChild(bar);
-    telemetryBars.push({ fill, label, value: Math.random() * TELEMETRY_IDLE_MAX_PCT });
+    telemetryBars.push({ fill, value: Math.random() * TELEMETRY_IDLE_MAX_PCT });
   }
 
   renderTelemetry();
   setInterval(telemetryTick, TELEMETRY_TICK_MS);
+  setInterval(telemetryAnimate, TELEMETRY_ANIM_MS);
 }
 
 function renderTelemetry() {
@@ -318,47 +326,45 @@ function renderTelemetry() {
   }
 }
 
-// Ambient idle noise, and gentle decay for any bar recently spiked by a word.
+// Ambient idle noise only -- skipped while real spectrum data is driving the
+// bars, so it can't fight the audio-reactive values every tick.
 function telemetryTick() {
+  if (telemetrySpeaking) return;
   for (const bar of telemetryBars) {
     const idleTarget = Math.random() * TELEMETRY_IDLE_MAX_PCT;
     bar.value = bar.value * TELEMETRY_DECAY + idleTarget * (1 - TELEMETRY_DECAY);
-    if (Math.random() < 0.25) bar.label.textContent = randomTelemetryLabel();
   }
   renderTelemetry();
 }
 
-// Simple deterministic string hash — same word always lands on the same bar.
-function hashWordToBarIndex(word) {
-  let hash = 0;
-  for (let i = 0; i < word.length; i++) {
-    hash = (hash * 31 + word.charCodeAt(i)) >>> 0;
-  }
-  return hash % TELEMETRY_BAR_COUNT;
+// Fed by 'telemetry-spectrum' IPC events, one per streamed audio chunk
+// (~3/sec). Just records the latest real target per bar -- telemetryAnimate
+// does the actual frame-by-frame movement so the display isn't capped at the
+// network's update rate.
+function applySpectrum(bands) {
+  telemetrySpeaking = true;
+  telemetryTargets = bands;
 }
 
-function pulseTelemetryForWord(word) {
-  if (!telemetryBars.length) return;
-  const bar = telemetryBars[hashWordToBarIndex(word)];
-  bar.value = Math.min(100, 45 + ((word.length * 13) % 55));
-  bar.label.textContent = word.replace(/[^a-z0-9]/gi, '').slice(0, 2).toUpperCase() || randomTelemetryLabel();
+// Runs independently of when spectrum data actually arrives (every
+// TELEMETRY_ANIM_MS), easing each bar toward its latest target -- fast attack,
+// slightly slower release, like a real VU meter -- so motion stays fluid
+// between the ~320ms audio updates instead of only jumping 3x/sec.
+function telemetryAnimate() {
+  if (!telemetrySpeaking || !telemetryTargets) return;
+  telemetryBars.forEach((bar, i) => {
+    const target = telemetryTargets[i] ?? 0;
+    const rate = target > bar.value ? TELEMETRY_ATTACK : TELEMETRY_RELEASE;
+    bar.value += (target - bar.value) * rate;
+  });
   renderTelemetry();
 }
 
-// Feed a streamed character into the word buffer; fires a pulse at each
-// word boundary (whitespace) so bars react as the response types out.
-function feedTelemetryChar(ch) {
-  if (/\s/.test(ch)) {
-    if (telemetryWordBuffer) pulseTelemetryForWord(telemetryWordBuffer);
-    telemetryWordBuffer = '';
-  } else {
-    telemetryWordBuffer += ch;
-  }
-}
-
-function flushTelemetryWord() {
-  if (telemetryWordBuffer) pulseTelemetryForWord(telemetryWordBuffer);
-  telemetryWordBuffer = '';
+// Called when a turn ends (or TTS is stopped) so the bars fall back to idle
+// ambient noise instead of freezing on the last audio frame.
+function stopTelemetrySpectrum() {
+  telemetrySpeaking = false;
+  telemetryTargets = null;
 }
 
 // ── Uptime ticker ─────────────────────────────────────────────────────────────
@@ -501,6 +507,7 @@ window.tars.on('state-change', ({ state }) => {
   // with the typing animation, not after it — so the cursor must stay until
   // the turn is actually done (idle/error), not get cut off mid-type.
   if (['idle', 'error'].includes(state)) finalizeResponse();
+  if (['idle', 'error'].includes(state)) stopTelemetrySpectrum();
   applyState(state);
 });
 
@@ -547,12 +554,13 @@ window.tars.on('response-complete', ({ stats, turns }) => {
   app.lastLatMs  = stats.latencyMs;
   if (stats.modelName) app.modelName = stats.modelName;
   refreshAnalytics();
-  flushTelemetryWord();
 });
 
 window.tars.on('system-message', ({ text }) => addSystemMsg(text));
 
 window.tars.on('call-log', ({ direction, text }) => addCallLogEntry(direction, text));
+
+window.tars.on('telemetry-spectrum', (bands) => applySpectrum(bands));
 
 window.tars.on('tts-state', ({ enabled }) => {
   app.ttsEnabled = enabled;
@@ -569,7 +577,7 @@ window.addEventListener('DOMContentLoaded', async () => {
   els.cfgHumor.textContent   = cfg.humor + '%';
   els.cfgHonesty.textContent = cfg.honesty + '%';
   els.cfgUrl.textContent     = cfg.lmStudioUrl.replace('http://', '').replace('/v1', '');
-  els.cfgVoice.textContent   = cfg.ttsVoice.toUpperCase();
+  els.cfgVoice.textContent   = cfg.voiceLabel;
 
   // Populate analytics
   els.aHumor.textContent   = cfg.humor + '%';
@@ -577,6 +585,8 @@ window.addEventListener('DOMContentLoaded', async () => {
   els.aTts.textContent     = cfg.ttsEnabled ? 'ON' : 'OFF';
   els.ttsLbl.textContent   = `TTS:${cfg.ttsEnabled ? 'ON' : 'OFF'}`;
   els.aModel.textContent   = cfg.chatModel;
+  els.aVoiceEngine.textContent = cfg.voiceEngine;
+  els.aVoiceLabel.textContent  = cfg.voiceLabel;
   app.ttsEnabled           = cfg.ttsEnabled;
   app.modelName            = cfg.chatModel;
 

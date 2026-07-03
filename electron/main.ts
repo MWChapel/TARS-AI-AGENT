@@ -11,7 +11,8 @@ if (process.platform === 'darwin') {
 import { app, BrowserWindow, ipcMain, systemPreferences, globalShortcut } from 'electron';
 import path from 'path';
 import { AudioRecorder } from '../src/audio/recorder';
-import { Speaker } from '../src/audio/speaker';
+import { createSpeaker } from '../src/audio/createSpeaker';
+import { getVoiceInfo } from '../src/audio/voiceInfo';
 import { Transcriber } from '../src/stt/transcriber';
 import { TARSClient } from '../src/llm/client';
 import { config } from '../src/config';
@@ -24,7 +25,7 @@ let appState: AppState = 'idle';
 let ttsEnabled = config.tts.enabled;
 
 const recorder = new AudioRecorder();
-const speaker = new Speaker();
+const speaker = createSpeaker();
 const transcriber = new Transcriber();
 const tarsClient = new TARSClient();
 
@@ -32,12 +33,12 @@ tarsClient.onSearch = (query: string) => {
   sysMsg(`ACCESSING EXTERNAL DATA FEEDS: ${query}`);
 };
 
-tarsClient.onHermes = () => {
-  sysMsg('OPENING CHANNEL: Hermes agent via ACP gateway…');
-};
-
 tarsClient.onCallLog = (entry) => {
   send('call-log', entry);
+};
+
+speaker.onSpectrum = (bands) => {
+  send('telemetry-spectrum', bands);
 };
 
 // ── IPC helpers ───────────────────────────────────────────────────────────────
@@ -186,16 +187,21 @@ ipcMain.on('stop-tts', () => {
 
 ipcMain.on('quit', () => app.quit());
 
-ipcMain.handle('get-config', () => ({
-  humor: config.tars.humor,
-  honesty: config.tars.honesty,
-  lmStudioUrl: config.lmStudio.baseURL,
-  chatModel: config.lmStudio.chatModel,
-  whisperModel: config.whisper.model,
-  whisperEnabled: config.whisper.enabled,
-  ttsEnabled,
-  ttsVoice: config.tts.voice,
-}));
+ipcMain.handle('get-config', async () => {
+  const voice = await getVoiceInfo();
+  return {
+    humor: config.tars.humor,
+    honesty: config.tars.honesty,
+    lmStudioUrl: config.lmStudio.baseURL,
+    chatModel: config.lmStudio.chatModel,
+    whisperModel: config.whisper.model,
+    whisperEnabled: config.whisper.enabled,
+    ttsEnabled,
+    ttsVoice: config.tts.voice,
+    voiceEngine: voice.engine,
+    voiceLabel: voice.voice,
+  };
+});
 
 // ── Window creation ───────────────────────────────────────────────────────────
 

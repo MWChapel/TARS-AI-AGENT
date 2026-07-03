@@ -1,5 +1,7 @@
 # Dependencies
 node_modules/
+tts-server/venv/
+tts-server/__pycache__/
 
 # Build output
 dist/

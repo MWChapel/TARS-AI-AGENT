@@ -4,10 +4,9 @@ Turning TARS from a chatbot that occasionally searches the web into an agent tha
 
 ## Where things stand today
 
-TARS has exactly two tools, and neither is a "tool" in the OpenAI function-calling sense:
+TARS has exactly one tool, and it isn't a "tool" in the OpenAI function-calling sense:
 
 - **`src/tools/search.ts`** — `webSearch(query, maxResults)`. Called two ways: proactively before the first LLM call when `isSearchWorthy()` (a regex heuristic in `src/llm/client.ts`) matches the user's message, or reactively when the model's own output matches one of several hand-written regexes for "the model asked to search" (`extractToolQuery()`).
-- **`src/tools/hermes.ts`** — a fixed bridge to one external ACP agent, triggered by the literal word "hermes" appearing in the user's message. Not model-invoked at all.
 
 **The core limitation**: there's no real tool-calling loop. `extractToolQuery()` is a growing pile of regexes trying to catch every format a local model might hallucinate for "I want to call a tool" (`<tool_code>`, `<tool_call>{...}`, `[Web Search: ...]`, and whatever the next model quantization decides to emit). Every new tool would mean another regex, another failure mode, another silent no-op when a model phrases its intent slightly differently — we already had to patch this once (bracket-format leak, see `extractToolQuery` history). This doesn't scale past one tool.
 
@@ -29,7 +28,7 @@ TARS has exactly two tools, and neither is a "tool" in the OpenAI function-calli
      requiresConfirmation?: boolean;  // see Phase 0.3, permission model
    }
    ```
-2. **Tool registry** (`src/tools/registry.ts`) — an array/map of `Tool` instances. `search` and `hermes` get wrapped as the first two entries, migrated off their bespoke trigger logic (`isSearchWorthy`, the `hermes` keyword regex) and onto real tool-choice — the model decides when to call them, not a regex on the user's raw text.
+2. **Tool registry** (`src/tools/registry.ts`) — an array/map of `Tool` instances. `search` gets wrapped as the first entry, migrated off its bespoke trigger logic (`isSearchWorthy`) and onto real tool-choice — the model decides when to call it, not a regex on the user's raw text.
 3. **Dispatcher loop in `TARSClient.chat()`** — replace the current "one search, one retry" flow in `src/llm/client.ts` with a real loop: send `tools` on the request, if the response has `tool_calls`, execute each via the registry, append `role: 'tool'` results to history, call again — repeat until the model returns a plain text response or a max-iteration guard trips (cap at ~4 to avoid runaway loops on a misbehaving local model).
 4. **Fallback path** — detect tool support once per model (LM Studio's `/v1/models` doesn't expose this reliably, so probably: try a tool-call request, catch the "does not support tools" error class, remember the result per `chatModel` for the session). When unsupported, fall back to today's prompt-injection + regex approach, but drive it off the same `Tool[]` registry (generate the "you have access to: search(query), readFile(path), ..." prompt block from the registry instead of hardcoding search into `buildSystemPrompt()`).
 5. **Wire `onCallLog`** (already exists, `src/llm/client.ts`) to log every tool call/result through the same pipe search results currently use — the CALL LOG panel in the Electron UI becomes a real tool-execution log for free, no UI work needed.
@@ -79,22 +78,12 @@ Higher value, higher complexity, mix of local system control and third-party API
 
 ---
 
-## Phase 4 — Multi-agent expansion
-
-`src/tools/hermes.ts` already speaks ACP (Agent Communication Protocol) to one fixed agent. Once Phase 0 lands, this generalizes naturally:
-
-- Support multiple named ACP agents (config becomes a list instead of one `hermes.acpUrl`/`agentName` pair).
-- Expose each configured agent as its own tool (`ask_hermes`, `ask_<agent2>`, ...) rather than a magic-keyword trigger — the model picks the right one based on the request, the same way it'll pick `web_search` vs `run_shell`.
-- This turns TARS into a router/orchestrator in front of a small fleet of specialized agents, not just a single chatbot with a search fallback.
-
----
-
 ## Cross-cutting: the permission model
 
 This is not optional once Phase 2+ tools exist — `run_shell` and `write_file` mean TARS can genuinely modify the user's machine. Minimum viable version:
 
 - `Tool.requiresConfirmation: boolean` (Phase 0 interface, above). When true, surface the pending call in the UI (both `src/ui/terminal.ts` and `electron/renderer/`) and block execution until the user approves — mirrors how `blessed.prompt` is already used for the text-input overlay, or a simple y/n confirmation line in the mission log.
-- Config-level kill switches per tool category, following the existing `SEARCH_ENABLED`/`HERMES_ENABLED` pattern in `src/config.ts` (e.g. `SHELL_TOOL_ENABLED=false` by default, opt-in).
+- Config-level kill switches per tool category, following the existing `SEARCH_ENABLED` pattern in `src/config.ts` (e.g. `SHELL_TOOL_ENABLED=false` by default, opt-in).
 - Workspace scoping for filesystem tools (never let `read_file`/`write_file` touch arbitrary absolute paths without an explicit override).
 
 ## Suggested `src/tools/` layout once this is underway
@@ -104,7 +93,6 @@ src/tools/
   types.ts        Tool interface, JSONSchema type
   registry.ts      Central Tool[] registry, lookup by name
   search.ts         (existing — migrate to Tool interface)
-  hermes.ts          (existing — migrate to Tool interface, then Phase 4 multi-agent)
   calculator.ts
   datetime.ts
   clipboard.ts

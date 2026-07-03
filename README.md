@@ -3,11 +3,12 @@
 A local, voice-driven chatbot styled after TARS — the tactical robot from *Interstellar* — with a retro green-on-black terminal UI (VT100-style, via [blessed](https://github.com/chjj/blessed)) and an optional Electron desktop shell. Runs entirely against a local LLM (via [LM Studio](https://lmstudio.ai)); no cloud LLM API keys required.
 
 ```
- _____ _    ____  ____
-|_   _/ \  |  _ \/ ___|
-  | |/ _ \ | |_) \___ \
-  | / ___ \|  _ < ___) |
-  |_/_/   \_\_| \_\____/
+████████╗ █████╗ ██████╗ ███████╗
+╚══██╔══╝██╔══██╗██╔══██╗██╔════╝
+   ██║   ███████║██████╔╝███████╗
+   ██║   ██╔══██║██╔══██╗╚════██║
+   ██║   ██║  ██║██║  ██║███████║
+   ╚═╝   ╚═╝  ╚═╝╚═╝  ╚═╝╚══════╝
 ```
 
 ## Features
@@ -16,12 +17,11 @@ A local, voice-driven chatbot styled after TARS — the tactical robot from *Int
 - **In-character persona** — TARS's HUMOR / HONESTY dials are configurable and baked into the system prompt; responses stay in character and strip any leaked tool-call markup.
 - **Live typing animation** — responses are paced out character-by-character instead of appearing all at once, and text-to-speech starts in parallel with the typing (not after it finishes) — see `TARSClient.onResponseReady` / `typeOut()` in `src/llm/client.ts`.
 - **Voice input** — fully local speech-to-text via [Whisper](https://github.com/openai/whisper) (through `@xenova/transformers`, running in a separate Node worker process so the model never touches Electron's ABI). Model weights are downloaded once and cached at `~/.cache/tars-agent/`.
-- **Voice output** — text-to-speech via macOS's built-in `say` command (no network calls, no extra dependencies).
+- **Voice output** — text-to-speech via macOS's built-in `say` command by default (no network calls, no extra dependencies). Optionally swap in a higher-quality cloned voice via a local [Qwen3-TTS](https://github.com/QwenLM/Qwen3-TTS) server running natively on Apple Silicon via [MLX](https://github.com/Blaizzy/mlx-audio), streaming audio as it's generated (~500ms to first sound) — see [`tts-server/README.md`](./tts-server/README.md). Automatically falls back to `say` if that server isn't running.
 - **Live web search** — the model can pull current information (news, prices, scores, etc.) into its context via DuckDuckGo (free, no key) or [Brave Search API](https://brave.com/search/api/) (optional key, better quality). A heuristic decides when a query needs fresh data, and results are injected into context transparently.
-- **Hermes agent bridge** — mentioning "hermes" in a message routes it to an external agent over the [ACP (Agent Communication Protocol)](https://agentcommunicationprotocol.dev/) REST API, with TARS relaying the reply in character.
 - **Two front ends** — a terminal UI (`blessed`-based TUI) for the CLI, and a matching Electron desktop app with the same commands and visuals.
-- **Live analytics panel** — token counts, latency, turn count, session time, model, and whisper/TTS state, updated per turn. In the Electron app this panel is styled in a distinct blue/cyan palette (vs. the mission log's green) and includes a **CALL LOG** sub-panel showing the raw input/output of every actual LLM request.
-- **Cosmetic header telemetry graph** (Electron only) — a 10-bar graph in the header that reacts to incoming response text: idles at low random noise, and each word streamed in is hashed to a bar and spikes it before decaying back down. Purely decorative, no data behind it.
+- **Live analytics panel** — token counts, latency, turn count, session time, chat model, whisper state, and the active voice engine + voice/model (queries the Qwen3-TTS server's `/health` endpoint live when that backend is in use, so it reflects whatever model is actually loaded there), updated per turn. In the Electron app this panel is styled in a distinct blue/cyan palette (vs. the mission log's green) and includes a **CALL LOG** sub-panel showing the raw input/output of every actual LLM request.
+- **Cosmetic header telemetry graph** (Electron only) — a 10-bar spectrum analyzer in the header that reacts to the actual TTS voice output: each bar tracks one frequency band of the synthesized audio in real time (via a lightweight Goertzel-based band analysis in `src/audio/qwenSpeaker.ts`), idling at low random noise between turns or when using the macOS `say` fallback voice (no raw audio to analyze there). Purely decorative, no data behind it beyond the audio itself.
 
 ## Prerequisites
 
@@ -86,17 +86,13 @@ The screen is split into a header (ASCII logo + uptime), a scrollable mission lo
 Same keyboard shortcuts and behavior as the terminal UI, in a native window (`electron/renderer/`). `npm run dev` runs with `NODE_ENV=development`. On first launch, macOS will prompt for microphone access.
 
 The Electron window additionally has:
-- A **CALL LOG** panel (bottom of the right sidebar, below ANALYTICS) that streams the raw input/output text of every actual LLM request as it happens — useful for seeing exactly what's being sent when search results or Hermes replies get injected into context.
-- A cosmetic **telemetry bar graph** in the header, to the left of the state indicator, that visually reacts to each word as TARS's response types out (see Features above).
+- A **CALL LOG** panel (bottom of the right sidebar, below ANALYTICS) that streams the raw input/output text of every actual LLM request as it happens — useful for seeing exactly what's being sent when search results get injected into context.
+- A cosmetic **telemetry bar graph** in the header, to the left of the state indicator, that acts as a live spectrum analyzer for TARS's spoken voice output (see Features above).
 - Clicking **CLEAR** (or pressing `C`) resets the mission log, CALL LOG panel, and all analytics counters together.
 
 ### Triggering a web search
 
 Search is heuristic-driven — TARS decides per message whether to look something up (question marks, words like "latest"/"current"/"today"/"news"/"score"/"price", or a year in the 2024–2039 range) before deciding whether to answer directly. You don't need to ask it to "search" explicitly, though you can.
-
-### Triggering the Hermes agent
-
-Include the word "hermes" anywhere in your message to route it to the configured ACP agent instead of the local LLM directly; TARS relays the agent's reply in character.
 
 ## Configuration
 
@@ -124,6 +120,16 @@ All configuration is via environment variables (loaded from `.env` with [`dotenv
 | `TTS_ENABLED` | `true` | Set `false` to mute TARS (text only) |
 | `TTS_VOICE` | `Fred` | Any macOS `say` voice — e.g. `Fred` (robotic), `Zarvox` (alien), `Daniel` (British), `Alex` (US male) |
 
+### Qwen3-TTS voice-clone server (optional)
+
+| Variable | Default | Description |
+|---|---|---|
+| `QWEN_TTS_ENABLED` | `false` | Set `true` to speak through the local Qwen3-TTS server instead of macOS `say` |
+| `QWEN_TTS_URL` | `http://127.0.0.1:8008` | Base URL of the server started from `tts-server/` |
+| `QWEN_TTS_TIMEOUT_MS` | `30000` | Max time to wait for the **first** byte of audio before falling back to `say` — once streaming has started, a long response is expected to keep going and isn't cut off |
+
+Requires running a separate Python process first — see [`tts-server/README.md`](./tts-server/README.md) for setup. Not backed by LM Studio; runs the model natively via [MLX](https://github.com/Blaizzy/mlx-audio) on Apple Silicon. The server streams raw PCM audio over HTTP as it's generated (chunked transfer-encoding), and `qwenSpeaker.ts` pipes those bytes directly into a `sox` process for real-time playback — no waiting for the whole response, no temp WAV files. Measured ~500ms from request to first audio. If the server isn't running or unreachable, TARS transparently falls back to the macOS `say` backend for the whole response, so this is safe to enable and leave on.
+
 ### Personality
 
 | Variable | Default | Description |
@@ -138,17 +144,7 @@ All configuration is via environment variables (loaded from `.env` with [`dotenv
 | `SEARCH_ENABLED` | `true` | Set `false` to disable web search entirely |
 | `BRAVE_SEARCH_API_KEY` | unset | Optional. If set, uses [Brave Search API](https://brave.com/search/api/) (free tier: 2,000 queries/month). If unset, falls back to scraping `html.duckduckgo.com/html/` (no key needed). Note: DuckDuckGo's `lite.duckduckgo.com/lite/` endpoint now blocks scripted requests with a CAPTCHA challenge — the `html.duckduckgo.com/html/` endpoint with a browser `User-Agent` still works as of this writing, but as with any scrape, it isn't a stable contract. |
 
-### Hermes agent (ACP)
-
-| Variable | Default | Description |
-|---|---|---|
-| `HERMES_ENABLED` | `true` | Set `false` to disable the Hermes routing entirely |
-| `HERMES_ACP_URL` | `http://localhost:8000` | Base URL of the ACP-compatible agent server |
-| `HERMES_ACP_TOKEN` | *(empty)* | Optional bearer token sent as `Authorization: Bearer <token>` |
-| `HERMES_AGENT_NAME` | `hermes` | Agent name passed in the ACP run request |
-| `HERMES_TIMEOUT_MS` | `30000` | Max time to wait for a run to complete (initial request + polling) |
-
-> `.env.example` currently only documents the LM Studio / Whisper / TTS / personality variables. The search and Hermes variables above are supported by the code (`src/config.ts`) but not yet listed there — add them to your `.env` manually if you want non-default values.
+> `.env.example` currently only documents the LM Studio / Whisper / TTS / personality variables. `SEARCH_ENABLED` / `BRAVE_SEARCH_API_KEY` above are supported by the code (`src/config.ts`) but not yet listed there — add them to your `.env` manually if you want non-default values.
 
 ## Scripts
 
@@ -168,13 +164,17 @@ src/
   index.ts            Terminal UI entry point (npm run cli)
   config.ts            Central config, reads from .env
   ui/terminal.ts        blessed-based TUI (header, chat log, analytics, status/controls)
-  llm/client.ts          OpenAI-compatible chat client, system prompt, search/Hermes routing
+  llm/client.ts          OpenAI-compatible chat client, system prompt, search routing
   audio/recorder.ts       Microphone capture via SoX (`rec`), resampled to 16 kHz WAV
-  audio/speaker.ts        TTS via macOS `say`
+  audio/speaker.ts        TTS via macOS `say` (default backend)
+  audio/qwenSpeaker.ts     TTS via the local Qwen3-TTS server -- streams raw PCM straight into a
+                           `sox` process for real-time playback, falls back to speaker.ts on failure
+  audio/createSpeaker.ts    Picks speaker.ts vs qwenSpeaker.ts based on config.qwenTts.enabled
+  audio/voiceInfo.ts        Reports the active voice engine + model for the analytics panel
+                            (live /health check against the Qwen server when that backend is on)
   stt/transcriber.ts       Spawns whisper-worker.ts as a child process, talks over stdio (JSON lines)
   stt/whisper-worker.ts     Runs @xenova/transformers Whisper pipeline in isolation
   tools/search.ts          Brave Search API / DuckDuckGo HTML fallback
-  tools/hermes.ts          ACP client (POST /runs, poll GET /runs/{id})
 
 electron/
   main.ts              Electron main process — mirrors src/ui/terminal.ts logic over IPC
@@ -184,6 +184,9 @@ electron/
 
 scripts/
   prefetch-whisper.ts   Standalone Whisper model downloader with progress UI
+
+tts-server/            Separate Python process (not Node) — loads Qwen3-TTS-12Hz-1.7B-Base via
+  server.py             MLX once, streams /synthesize as raw PCM (chunked). See its own README.
 ```
 
 **Why Whisper runs in a separate process:** `@xenova/transformers` and `onnxruntime-node` are ESM/native modules that can conflict with Electron's Node ABI. `transcriber.ts` spawns a plain system Node process and communicates over newline-delimited JSON on stdin/stdout, sidestepping the issue entirely. It runs the compiled `whisper-worker.js` when available (Electron, after `npm run build`), and falls back to running `whisper-worker.ts` directly via the local `tsx` binary when there's no build (`npm run cli`, which runs `src/index.ts` straight through `tsx` with no compile step).
@@ -202,4 +205,4 @@ scripts/
 
 ## Roadmap
 
-See [`ROADMAP.md`](./ROADMAP.md) for the plan to extend TARS from a chatbot with a search fallback into a proper tool-using agent (real OpenAI-style tool calling, filesystem/shell/calendar tools, a permission model for anything with side effects, and multi-agent routing via Hermes).
+See [`ROADMAP.md`](./ROADMAP.md) for the plan to extend TARS from a chatbot with a search fallback into a proper tool-using agent (real OpenAI-style tool calling, filesystem/shell/calendar tools, and a permission model for anything with side effects).

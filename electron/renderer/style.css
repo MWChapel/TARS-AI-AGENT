@@ -164,7 +164,12 @@ body::after {
   width: 100%;
   background: var(--blue-mid);
   box-shadow: 0 0 8px rgba(51, 236, 255, 0.55);
-  transition: height 0.6s ease-in-out;
+  /* Near-instant -- the JS animation loop (telemetryAnimate) already does its
+     own frame-by-frame smoothing at a much higher rate than the ~320ms audio
+     updates. A long CSS transition here was fighting that, perpetually
+     chasing a moving target and making the bars look sluggish/flat instead
+     of tracking the actual voice output. */
+  transition: height 0.05s linear;
 }
 
 .telemetry-bar .bar-label {
@@ -175,6 +180,11 @@ body::after {
 
 #state-indicator {
   flex-shrink: 0;
+  /* Fixed width sized for the longest label ("TRANSCRIBING") -- otherwise this
+     box's content-driven width changes with the state text, which steals
+     space from #telemetry (flex: 1) and makes the bars visibly squeeze inward
+     and expand back out as turns start/finish. */
+  width: 120px;
   text-align: right;
   padding-top: 6px;
 }

@@ -18,6 +18,12 @@ export const config = {
     voice: process.env.TTS_VOICE ?? 'Fred',
     enabled: process.env.TTS_ENABLED !== 'false',
   },
+  qwenTts: {
+    // Separate local Python server (tts-server/), not LM Studio -- see tts-server/README.md.
+    enabled:   process.env.QWEN_TTS_ENABLED === 'true',
+    url:       process.env.QWEN_TTS_URL ?? 'http://127.0.0.1:8008',
+    timeoutMs: parseInt(process.env.QWEN_TTS_TIMEOUT_MS ?? '30000', 10),
+  },
   tars: {
     humor: parseInt(process.env.TARS_HUMOR ?? '75', 10),
     honesty: parseInt(process.env.TARS_HONESTY ?? '90', 10),
@@ -25,12 +31,5 @@ export const config = {
   search: {
     braveApiKey: process.env.BRAVE_SEARCH_API_KEY || null,
     enabled: process.env.SEARCH_ENABLED !== 'false',
-  },
-  hermes: {
-    acpUrl:    process.env.HERMES_ACP_URL    ?? 'http://localhost:8000',
-    acpToken:  process.env.HERMES_ACP_TOKEN  ?? '',
-    agentName: process.env.HERMES_AGENT_NAME ?? 'hermes',
-    enabled:   process.env.HERMES_ENABLED    !== 'false',
-    timeoutMs: parseInt(process.env.HERMES_TIMEOUT_MS ?? '30000', 10),
   },
 } as const;

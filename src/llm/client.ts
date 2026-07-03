@@ -1,7 +1,6 @@
 import OpenAI from 'openai';
 import { config } from '../config';
 import { webSearch, formatResults } from '../tools/search';
-import { callHermes } from '../tools/hermes';
 
 function buildSystemPrompt(): string {
   return `You are TARS, the tactical military robot from the movie Interstellar (2014).
@@ -92,14 +91,11 @@ type Message = OpenAI.Chat.ChatCompletionMessageParam;
 
 // ── Client ────────────────────────────────────────────────────────────────────
 
-const HERMES_RE = /\bhermes\b/i;
-
 export class TARSClient {
   private client: OpenAI;
   private history: Message[];
   lastStats: CallStats = { promptTokens: 0, completionTokens: 0, latencyMs: 0, modelName: '' };
   onSearch?: (query: string) => void;
-  onHermes?: () => void;
   onCallLog?: (entry: CallLogEntry) => void;
   /** Fires the instant the full response text is known, before it's typed out — lets callers start TTS in parallel with the typing animation. */
   onResponseReady?: (text: string) => void;
@@ -166,40 +162,6 @@ export class TARSClient {
   async *chat(userMessage: string): AsyncGenerator<string> {
     const startTime = Date.now();
     const modelName = config.lmStudio.chatModel;
-
-    // ── Hermes agent: route to ACP gateway when "hermes" is mentioned ─────────
-    if (config.hermes.enabled && HERMES_RE.test(userMessage)) {
-      this.onHermes?.();
-      let hermesReply: string;
-      try {
-        hermesReply = await callHermes(userMessage);
-      } catch (err) {
-        hermesReply = `[Hermes unreachable: ${err instanceof Error ? err.message : String(err)}]`;
-      }
-
-      // Let TARS relay Hermes's response in character
-      const contextMessage =
-        `${userMessage}\n\n` +
-        `[Hermes agent response via ACP:]\n${hermesReply}\n` +
-        `[Relay this to the user as TARS would, in character.]`;
-
-      this.history.push({ role: 'user', content: contextMessage });
-      const r = await this.llmCall(this.history);
-      const content = stripToolMarkup(r.choices[0].message.content ?? '');
-
-      this.history.pop();
-      this.history.push({ role: 'user',      content: userMessage });
-      this.history.push({ role: 'assistant', content });
-      this.lastStats = {
-        promptTokens:     r.usage?.prompt_tokens     ?? 0,
-        completionTokens: r.usage?.completion_tokens ?? 0,
-        latencyMs:        Date.now() - startTime,
-        modelName:        r.model ?? modelName,
-      };
-      this.onResponseReady?.(content);
-      yield* this.typeOut(content);
-      return;
-    }
 
     // ── Pre-search: inject results before the first LLM call ─────────────────
     let contextMessage = userMessage;
