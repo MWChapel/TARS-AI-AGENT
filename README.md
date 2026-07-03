@@ -196,5 +196,10 @@ scripts/
 
 - **TTS is macOS-only** (`/usr/bin/say`). On other platforms, set `TTS_ENABLED=false`.
 - **Voice recording depends on SoX's `rec`** being on `PATH` (or at `/opt/homebrew/bin/rec` / `/usr/local/bin/rec`).
-- **DuckDuckGo fallback search is a best-effort HTML scrape**, not an official API — it can break if DuckDuckGo changes their markup or starts blocking the request pattern. For reliable search, set `BRAVE_SEARCH_API_KEY`.
+- **DuckDuckGo fallback search is a best-effort HTML scrape**, not an official API — it can break again if DuckDuckGo changes their markup or starts blocking this request pattern too. For reliable search, set `BRAVE_SEARCH_API_KEY`.
+- **Tool calling is regex-based, not native** — see the "Why the LLM system prompt strips tool-call markup" note above and `ROADMAP.md`.
 - **No automated test suite** — validate changes with `npm run typecheck` and manual runs of `npm run cli`.
+
+## Roadmap
+
+See [`ROADMAP.md`](./ROADMAP.md) for the plan to extend TARS from a chatbot with a search fallback into a proper tool-using agent (real OpenAI-style tool calling, filesystem/shell/calendar tools, a permission model for anything with side effects, and multi-agent routing via Hermes).
