@@ -13,6 +13,7 @@ import path from 'path';
 import { AudioRecorder } from '../src/audio/recorder';
 import { createSpeaker } from '../src/audio/createSpeaker';
 import { getVoiceInfo } from '../src/audio/voiceInfo';
+import { startTtsServerIfNeeded, stopTtsServer } from '../src/audio/ttsServerManager';
 import { Transcriber } from '../src/stt/transcriber';
 import { TARSClient } from '../src/llm/client';
 import { config } from '../src/config';
@@ -256,11 +257,18 @@ async function createWindow(): Promise<void> {
   });
 }
 
+// Fire-and-forget -- kicked off as early as possible so the Python model load
+// overlaps with the rest of Electron's startup instead of adding to it. The
+// existing QwenSpeaker fallback (see createSpeaker.ts) already handles "not
+// ready yet" by falling back to the say voice, so nothing needs to block on it.
+void startTtsServerIfNeeded();
+
 app.whenReady().then(createWindow);
 
 app.on('will-quit', () => {
   globalShortcut.unregisterAll();
   speaker.stop();
+  stopTtsServer();
 });
 
 app.on('window-all-closed', () => app.quit());

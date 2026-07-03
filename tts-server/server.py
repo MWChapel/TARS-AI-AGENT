@@ -20,7 +20,12 @@ import urllib.request
 from http.server import BaseHTTPRequestHandler, HTTPServer
 
 import numpy as np
+from dotenv import load_dotenv
 from mlx_audio.tts.utils import load_model
+
+# Picks up tts-server/.env -- this is a separate Python process from the Node
+# app, so it needs its own env file rather than sharing the root .env.
+load_dotenv()
 
 PORT = int(os.environ.get("TARS_TTS_PORT", "8008"))
 MODEL_ID = os.environ.get("TARS_TTS_MODEL", "mlx-community/Qwen3-TTS-12Hz-1.7B-Base-8bit")
@@ -28,10 +33,25 @@ LANGUAGE = os.environ.get("TARS_TTS_LANGUAGE", "English")
 SAMPLE_RATE = int(os.environ.get("TARS_TTS_SAMPLE_RATE", "24000"))
 STREAMING_INTERVAL = float(os.environ.get("TARS_TTS_STREAMING_INTERVAL", "0.32"))
 
-# Official Qwen3-TTS demo reference clip -- swap these for your own 3+ second
-# clip + exact transcript to clone a different voice. mlx-audio needs a local
-# file (unlike the transformers package, it can't fetch a URL itself), so a
-# URL here gets downloaded once and cached.
+# Named voice (CustomVoice models only) -- one of: serena, vivian, uncle_fu,
+# ryan, aiden, ono_anna, sohee, eric, dylan. When set, this takes over from
+# voice cloning entirely (below) -- requires TARS_TTS_MODEL to be a CustomVoice
+# variant, e.g. mlx-community/Qwen3-TTS-12Hz-1.7B-CustomVoice-8bit.
+VOICE = os.environ.get("TARS_TTS_VOICE", "").strip()
+
+if VOICE and "customvoice" not in MODEL_ID.lower():
+    print(
+        f"[tars-tts] WARNING: TARS_TTS_VOICE={VOICE!r} is set but TARS_TTS_MODEL "
+        f"({MODEL_ID}) doesn't look like a CustomVoice variant -- generation will "
+        f"likely fail. Use e.g. mlx-community/Qwen3-TTS-12Hz-1.7B-CustomVoice-8bit.",
+        flush=True,
+    )
+
+# Official Qwen3-TTS demo reference clip -- only used when TARS_TTS_VOICE isn't
+# set. Swap these for your own 3+ second clip + exact transcript to clone a
+# different voice. mlx-audio needs a local file (unlike the transformers
+# package, it can't fetch a URL itself), so a URL here gets downloaded once
+# and cached.
 REF_AUDIO_SOURCE = os.environ.get(
     "TARS_TTS_REF_AUDIO",
     "https://qianwen-res.oss-cn-beijing.aliyuncs.com/Qwen3-TTS-Repo/clone.wav",
@@ -62,8 +82,13 @@ print(f"[tars-tts] loading {MODEL_ID} (mlx)...", flush=True)
 model = load_model(MODEL_ID)
 print("[tars-tts] model ready", flush=True)
 
-REF_AUDIO = resolve_ref_audio(REF_AUDIO_SOURCE)
-print(f"[tars-tts] using reference clip: {REF_AUDIO}", flush=True)
+REF_AUDIO = None
+if VOICE:
+    print(f"[tars-tts] using named voice: {VOICE}", flush=True)
+else:
+    REF_AUDIO = resolve_ref_audio(REF_AUDIO_SOURCE)
+    print(f"[tars-tts] using reference clip: {REF_AUDIO}", flush=True)
+
 print(
     f"[tars-tts] ready on http://127.0.0.1:{PORT} "
     f"(sample_rate={SAMPLE_RATE}, streaming_interval={STREAMING_INTERVAL}s)",
@@ -82,6 +107,12 @@ class Handler(BaseHTTPRequestHandler):
         self.send_response(status)
         self.send_header("Content-Type", "application/json")
         self.send_header("Content-Length", str(len(body)))
+        # This server is single-threaded (see the __main__ note below) --
+        # without this, a kept-alive /health connection can leave the main
+        # accept loop stuck waiting on that idle socket's next request,
+        # making a genuinely new connection (e.g. another health check) look
+        # like the server is unreachable even though the process is fine.
+        self.send_header("Connection", "close")
         self.end_headers()
         self.wfile.write(body)
 
@@ -96,6 +127,7 @@ class Handler(BaseHTTPRequestHandler):
             self._send_json(200, {
                 "status": "ok",
                 "model": MODEL_ID,
+                "voice": VOICE or None,
                 "backend": "mlx",
                 "sample_rate": SAMPLE_RATE,
             })
@@ -128,14 +160,19 @@ class Handler(BaseHTTPRequestHandler):
             self.send_header("Connection", "close")
             self.end_headers()
 
-            for result in model.generate(
+            gen_kwargs = dict(
                 text=text,
-                ref_audio=REF_AUDIO,
-                ref_text=REF_TEXT,
-                language=LANGUAGE,
+                lang_code=LANGUAGE,
                 stream=True,
                 streaming_interval=STREAMING_INTERVAL,
-            ):
+            )
+            if VOICE:
+                gen_kwargs["voice"] = VOICE
+            else:
+                gen_kwargs["ref_audio"] = REF_AUDIO
+                gen_kwargs["ref_text"] = REF_TEXT
+
+            for result in model.generate(**gen_kwargs):
                 audio = np.asarray(result.audio, dtype=np.float32)
                 pcm16 = np.clip(audio * 32767.0, -32768, 32767).astype("<i2").tobytes()
                 if pcm16:

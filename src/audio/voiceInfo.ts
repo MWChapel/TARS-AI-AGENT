@@ -22,11 +22,13 @@ export async function getVoiceInfo(): Promise<VoiceInfo> {
     const base = config.qwenTts.url.replace(/\/$/, '');
     const res = await fetch(`${base}/health`, { signal: AbortSignal.timeout(2000) });
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
-    const body = await res.json() as { model?: string };
-    return {
-      engine: 'QWEN3-TTS',
-      voice: body.model ? shortModelLabel(body.model) : 'UNKNOWN',
-    };
+    const body = await res.json() as { model?: string; voice?: string | null };
+    // A named CustomVoice speaker (e.g. "ryan") is more meaningful than the
+    // raw model id, so prefer it when the server reports one.
+    const voice = body.voice
+      ? body.voice.toUpperCase()
+      : (body.model ? shortModelLabel(body.model) : 'UNKNOWN');
+    return { engine: 'QWEN3-TTS', voice };
   } catch {
     return { engine: 'QWEN3-TTS', voice: 'UNREACHABLE (falls back to SAY)' };
   }

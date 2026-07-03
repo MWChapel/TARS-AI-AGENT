@@ -17,7 +17,7 @@ A local, voice-driven chatbot styled after TARS — the tactical robot from *Int
 - **In-character persona** — TARS's HUMOR / HONESTY dials are configurable and baked into the system prompt; responses stay in character and strip any leaked tool-call markup.
 - **Live typing animation** — responses are paced out character-by-character instead of appearing all at once, and text-to-speech starts in parallel with the typing (not after it finishes) — see `TARSClient.onResponseReady` / `typeOut()` in `src/llm/client.ts`.
 - **Voice input** — fully local speech-to-text via [Whisper](https://github.com/openai/whisper) (through `@xenova/transformers`, running in a separate Node worker process so the model never touches Electron's ABI). Model weights are downloaded once and cached at `~/.cache/tars-agent/`.
-- **Voice output** — text-to-speech via macOS's built-in `say` command by default (no network calls, no extra dependencies). Optionally swap in a higher-quality cloned voice via a local [Qwen3-TTS](https://github.com/QwenLM/Qwen3-TTS) server running natively on Apple Silicon via [MLX](https://github.com/Blaizzy/mlx-audio), streaming audio as it's generated (~500ms to first sound) — see [`tts-server/README.md`](./tts-server/README.md). Automatically falls back to `say` if that server isn't running.
+- **Voice output** — text-to-speech via macOS's built-in `say` command by default (no network calls, no extra dependencies). Optionally swap in a much higher-quality voice via a local [Qwen3-TTS](https://github.com/QwenLM/Qwen3-TTS) server running natively on Apple Silicon via [MLX](https://github.com/Blaizzy/mlx-audio), streaming audio as it's generated (~500ms to first sound) — either clone a reference clip, or pick one of 9 built-in named voices, both configurable via `tts-server/.env` — see [`tts-server/README.md`](./tts-server/README.md). Automatically falls back to `say` if that server isn't running.
 - **Live web search** — the model can pull current information (news, prices, scores, etc.) into its context via DuckDuckGo (free, no key) or [Brave Search API](https://brave.com/search/api/) (optional key, better quality). A heuristic decides when a query needs fresh data, and results are injected into context transparently.
 - **Two front ends** — a terminal UI (`blessed`-based TUI) for the CLI, and a matching Electron desktop app with the same commands and visuals.
 - **Live analytics panel** — token counts, latency, turn count, session time, chat model, whisper state, and the active voice engine + voice/model (queries the Qwen3-TTS server's `/health` endpoint live when that backend is in use, so it reflects whatever model is actually loaded there), updated per turn. In the Electron app this panel is styled in a distinct blue/cyan palette (vs. the mission log's green) and includes a **CALL LOG** sub-panel showing the raw input/output of every actual LLM request.
@@ -120,7 +120,7 @@ All configuration is via environment variables (loaded from `.env` with [`dotenv
 | `TTS_ENABLED` | `true` | Set `false` to mute TARS (text only) |
 | `TTS_VOICE` | `Fred` | Any macOS `say` voice — e.g. `Fred` (robotic), `Zarvox` (alien), `Daniel` (British), `Alex` (US male) |
 
-### Qwen3-TTS voice-clone server (optional)
+### Qwen3-TTS server (optional)
 
 | Variable | Default | Description |
 |---|---|---|
@@ -128,7 +128,7 @@ All configuration is via environment variables (loaded from `.env` with [`dotenv
 | `QWEN_TTS_URL` | `http://127.0.0.1:8008` | Base URL of the server started from `tts-server/` |
 | `QWEN_TTS_TIMEOUT_MS` | `30000` | Max time to wait for the **first** byte of audio before falling back to `say` — once streaming has started, a long response is expected to keep going and isn't cut off |
 
-Requires running a separate Python process first — see [`tts-server/README.md`](./tts-server/README.md) for setup. Not backed by LM Studio; runs the model natively via [MLX](https://github.com/Blaizzy/mlx-audio) on Apple Silicon. The server streams raw PCM audio over HTTP as it's generated (chunked transfer-encoding), and `qwenSpeaker.ts` pipes those bytes directly into a `sox` process for real-time playback — no waiting for the whole response, no temp WAV files. Measured ~500ms from request to first audio. If the server isn't running or unreachable, TARS transparently falls back to the macOS `say` backend for the whole response, so this is safe to enable and leave on.
+Backed by a separate Python process — see [`tts-server/README.md`](./tts-server/README.md) for setup, including how to pick a voice (either clone a reference clip, or one of 9 built-in named voices — configured via `tts-server/.env`, its own env file since it's a separate process). In the **Electron app**, this process is started and stopped automatically (`src/audio/ttsServerManager.ts`) — reusing one that's already running rather than starting a duplicate if you happen to have started it manually. The **terminal UI** (`npm run cli`) doesn't auto-start it yet — start `python server.py` yourself first (see `tts-server/README.md`). Not backed by LM Studio; runs the model natively via [MLX](https://github.com/Blaizzy/mlx-audio) on Apple Silicon. The server streams raw PCM audio over HTTP as it's generated (chunked transfer-encoding), and `qwenSpeaker.ts` pipes those bytes directly into a `sox` process for real-time playback — no waiting for the whole response, no temp WAV files. Measured ~500ms from request to first audio. If the server isn't running or unreachable, TARS transparently falls back to the macOS `say` backend for the whole response, so this is safe to enable and leave on.
 
 ### Personality
 
@@ -172,6 +172,8 @@ src/
   audio/createSpeaker.ts    Picks speaker.ts vs qwenSpeaker.ts based on config.qwenTts.enabled
   audio/voiceInfo.ts        Reports the active voice engine + model for the analytics panel
                             (live /health check against the Qwen server when that backend is on)
+  audio/ttsServerManager.ts  Starts/stops tts-server/ (Electron only) -- reuses an already-running
+                            server instead of spawning a duplicate
   stt/transcriber.ts       Spawns whisper-worker.ts as a child process, talks over stdio (JSON lines)
   stt/whisper-worker.ts     Runs @xenova/transformers Whisper pipeline in isolation
   tools/search.ts          Brave Search API / DuckDuckGo HTML fallback
@@ -185,8 +187,9 @@ electron/
 scripts/
   prefetch-whisper.ts   Standalone Whisper model downloader with progress UI
 
-tts-server/            Separate Python process (not Node) — loads Qwen3-TTS-12Hz-1.7B-Base via
-  server.py             MLX once, streams /synthesize as raw PCM (chunked). See its own README.
+tts-server/            Separate Python process (not Node) — loads a Qwen3-TTS model (cloning or
+  server.py             named-voice variant, see its own .env) via MLX once, streams /synthesize
+                        as raw PCM (chunked). See its own README.
 ```
 
 **Why Whisper runs in a separate process:** `@xenova/transformers` and `onnxruntime-node` are ESM/native modules that can conflict with Electron's Node ABI. `transcriber.ts` spawns a plain system Node process and communicates over newline-delimited JSON on stdin/stdout, sidestepping the issue entirely. It runs the compiled `whisper-worker.js` when available (Electron, after `npm run build`), and falls back to running `whisper-worker.ts` directly via the local `tsx` binary when there's no build (`npm run cli`, which runs `src/index.ts` straight through `tsx` with no compile step).
