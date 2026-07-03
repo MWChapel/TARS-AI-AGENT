@@ -14,12 +14,14 @@ A local, voice-driven chatbot styled after TARS — the tactical robot from *Int
 
 - **Local-first LLM** — talks to any OpenAI-compatible endpoint (default: [LM Studio](https://lmstudio.ai) at `localhost:1234`). No API key or internet connection required for chat itself.
 - **In-character persona** — TARS's HUMOR / HONESTY dials are configurable and baked into the system prompt; responses stay in character and strip any leaked tool-call markup.
+- **Live typing animation** — responses are paced out character-by-character instead of appearing all at once, and text-to-speech starts in parallel with the typing (not after it finishes) — see `TARSClient.onResponseReady` / `typeOut()` in `src/llm/client.ts`.
 - **Voice input** — fully local speech-to-text via [Whisper](https://github.com/openai/whisper) (through `@xenova/transformers`, running in a separate Node worker process so the model never touches Electron's ABI). Model weights are downloaded once and cached at `~/.cache/tars-agent/`.
 - **Voice output** — text-to-speech via macOS's built-in `say` command (no network calls, no extra dependencies).
 - **Live web search** — the model can pull current information (news, prices, scores, etc.) into its context via DuckDuckGo (free, no key) or [Brave Search API](https://brave.com/search/api/) (optional key, better quality). A heuristic decides when a query needs fresh data, and results are injected into context transparently.
 - **Hermes agent bridge** — mentioning "hermes" in a message routes it to an external agent over the [ACP (Agent Communication Protocol)](https://agentcommunicationprotocol.dev/) REST API, with TARS relaying the reply in character.
 - **Two front ends** — a terminal UI (`blessed`-based TUI) for the CLI, and a matching Electron desktop app with the same commands and visuals.
-- **Live analytics panel** — token counts, latency, turn count, session time, and current model, updated per turn.
+- **Live analytics panel** — token counts, latency, turn count, session time, model, and whisper/TTS state, updated per turn. In the Electron app this panel is styled in a distinct blue/cyan palette (vs. the mission log's green) and includes a **CALL LOG** sub-panel showing the raw input/output of every actual LLM request.
+- **Cosmetic header telemetry graph** (Electron only) — a 10-bar graph in the header that reacts to incoming response text: idles at low random noise, and each word streamed in is hashed to a bar and spikes it before decaying back down. Purely decorative, no data behind it.
 
 ## Prerequisites
 
@@ -72,7 +74,7 @@ A local, voice-driven chatbot styled after TARS — the tactical robot from *Int
 |---|---|
 | `SPACE` | Start / stop voice recording |
 | `ENTER` | Open a text input prompt |
-| `C` | Clear conversation history / mission log |
+| `C` | Clear conversation history — resets the mission log, the LLM's conversation history, and all analytics counters (tokens, turns, latency) back to zero |
 | `T` | Toggle text-to-speech on/off |
 | `S` | Stop TARS mid-speech |
 | `Q` / `Ctrl+C` | Quit |
@@ -82,6 +84,11 @@ The screen is split into a header (ASCII logo + uptime), a scrollable mission lo
 ### Electron app (`npm start` / `npm run dev`)
 
 Same keyboard shortcuts and behavior as the terminal UI, in a native window (`electron/renderer/`). `npm run dev` runs with `NODE_ENV=development`. On first launch, macOS will prompt for microphone access.
+
+The Electron window additionally has:
+- A **CALL LOG** panel (bottom of the right sidebar, below ANALYTICS) that streams the raw input/output text of every actual LLM request as it happens — useful for seeing exactly what's being sent when search results or Hermes replies get injected into context.
+- A cosmetic **telemetry bar graph** in the header, to the left of the state indicator, that visually reacts to each word as TARS's response types out (see Features above).
+- Clicking **CLEAR** (or pressing `C`) resets the mission log, CALL LOG panel, and all analytics counters together.
 
 ### Triggering a web search
 
@@ -129,7 +136,7 @@ All configuration is via environment variables (loaded from `.env` with [`dotenv
 | Variable | Default | Description |
 |---|---|---|
 | `SEARCH_ENABLED` | `true` | Set `false` to disable web search entirely |
-| `BRAVE_SEARCH_API_KEY` | unset | Optional. If set, uses [Brave Search API](https://brave.com/search/api/) (free tier: 2,000 queries/month). If unset, falls back to scraping DuckDuckGo's HTML search results (no key needed, lower reliability). |
+| `BRAVE_SEARCH_API_KEY` | unset | Optional. If set, uses [Brave Search API](https://brave.com/search/api/) (free tier: 2,000 queries/month). If unset, falls back to scraping `html.duckduckgo.com/html/` (no key needed). Note: DuckDuckGo's `lite.duckduckgo.com/lite/` endpoint now blocks scripted requests with a CAPTCHA challenge — the `html.duckduckgo.com/html/` endpoint with a browser `User-Agent` still works as of this writing, but as with any scrape, it isn't a stable contract. |
 
 ### Hermes agent (ACP)
 
@@ -171,16 +178,19 @@ src/
 
 electron/
   main.ts              Electron main process — mirrors src/ui/terminal.ts logic over IPC
-  preload.ts            contextBridge-exposed IPC surface
-  renderer/            HTML/CSS/JS front end for the Electron window
+  preload.ts            contextBridge-exposed IPC surface, whitelists IPC channels
+  renderer/            HTML/CSS/JS front end for the Electron window — chat log, blue/cyan
+                        ANALYTICS + CALL LOG sidebar, cosmetic header telemetry graph
 
 scripts/
   prefetch-whisper.ts   Standalone Whisper model downloader with progress UI
 ```
 
-**Why Whisper runs in a separate process:** `@xenova/transformers` and `onnxruntime-node` are ESM/native modules that can conflict with Electron's Node ABI. `transcriber.ts` spawns a plain system Node process (`whisper-worker.js`) and communicates over newline-delimited JSON on stdin/stdout, sidestepping the issue entirely.
+**Why Whisper runs in a separate process:** `@xenova/transformers` and `onnxruntime-node` are ESM/native modules that can conflict with Electron's Node ABI. `transcriber.ts` spawns a plain system Node process and communicates over newline-delimited JSON on stdin/stdout, sidestepping the issue entirely. It runs the compiled `whisper-worker.js` when available (Electron, after `npm run build`), and falls back to running `whisper-worker.ts` directly via the local `tsx` binary when there's no build (`npm run cli`, which runs `src/index.ts` straight through `tsx` with no compile step).
 
-**Why the LLM system prompt strips tool-call markup:** local models served through LM Studio don't reliably support OpenAI-style function calling. Instead, `llm/client.ts` decides heuristically (via `isSearchWorthy`) whether to run a search *before* calling the model, and separately scans the model's output for leaked tool-call-style syntax (`<tool_code>`, `<tool_call>`, etc.) in case the model tries to call a tool anyway — if found, it extracts the query, actually performs the search, and re-prompts with results.
+**Why the LLM system prompt strips tool-call markup:** local models served through LM Studio don't reliably support OpenAI-style function calling, and different models leak their attempted tool calls in different ad-hoc formats. `llm/client.ts` decides heuristically (via `isSearchWorthy`) whether to run a search *before* calling the model, and separately scans the model's output for leaked tool-call-style syntax — XML-ish (`<tool_code>`, `<tool_call>`, `<parameter=query>`), JSON-ish (`{"name":"web_search",...}`), and plain bracket pseudo-calls (`[Web Search: query]`) have all been observed from different models — in case the model tries to call a tool anyway. If found, it extracts the query, actually performs the search, and re-prompts with results instead of showing the raw placeholder text to the user. See `ROADMAP.md` for the plan to replace this regex-sniffing with real OpenAI-style tool calling.
+
+**How the typing animation works:** the LM Studio chat completion call itself is non-streaming (`stream: false`) — the full response comes back in one shot. `TARSClient.chat()` fires `onResponseReady` the instant that full text is known (so callers can start TTS immediately), then paces the *same* text back out to the caller one character at a time via `typeOut()` at a flat delay, independent of response length. Both UIs consume it through the same `for await` loop they'd use for real token streaming, so neither had to be restructured to get the typing effect.
 
 ## Known limitations
 
