@@ -1,0 +1,163 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta http-equiv="Content-Security-Policy"
+    content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'">
+  <title>TARS — Tactical Artificial Robot System</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<div id="app">
+
+  <!-- ── HEADER ─────────────────────────────────────────────── -->
+  <div id="header">
+    <div id="drag-region">
+      <div id="traffic-light-spacer"></div>
+
+      <pre id="ascii-art">████████╗ █████╗ ██████╗ ███████╗
+╚══██╔══╝██╔══██╗██╔══██╗██╔════╝
+   ██║   ███████║██████╔╝███████╗
+   ██║   ██╔══██║██╔══██╗╚════██║
+   ██║   ██║  ██║██║  ██║███████║
+   ╚═╝   ╚═╝  ╚═╝╚═╝  ╚═╝╚══════╝</pre>
+
+      <div id="header-meta">
+        <div class="meta-title">TACTICAL ARTIFICIAL ROBOT SYSTEM  v1.0</div>
+        <div class="meta-row">
+          <span class="meta-key">HUMOR</span><span class="meta-val" id="cfg-humor">75%</span>
+          <span class="meta-key">HONESTY</span><span class="meta-val" id="cfg-honesty">90%</span>
+          <span class="meta-key">COOPERATION</span><span class="meta-val">100%</span>
+        </div>
+        <div class="meta-row dim">
+          <span class="meta-key">LINK</span><span id="cfg-url">localhost:1234</span>
+          <span class="meta-key" style="margin-left:16px">VOICE</span><span id="cfg-voice">FRED</span>
+          <span class="meta-key" style="margin-left:16px">SESSION</span><span id="uptime">0s</span>
+        </div>
+      </div>
+
+      <div id="telemetry">
+        <div class="telemetry-bars" id="telemetry-bars"></div>
+      </div>
+
+      <div id="state-indicator">
+        <div id="state-dot">●</div>
+        <div id="state-label">READY</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── MAIN CONTENT ───────────────────────────────────────── -->
+  <div id="main">
+
+    <div id="chat-panel">
+      <div class="panel-label">▹ MISSION LOG</div>
+      <div id="chat-log"></div>
+    </div>
+
+    <div id="analytics-panel">
+      <div class="panel-label">▹ ANALYTICS</div>
+      <div id="analytics">
+
+        <div class="stat-sep"></div>
+        <div class="stat-group">
+          <div class="stat-row"><span class="sk">TOK IN</span><span class="sv" id="a-tok-in">0</span></div>
+          <div class="stat-row"><span class="sk">TOK OUT</span><span class="sv" id="a-tok-out">0</span></div>
+          <div class="stat-row"><span class="sk">AVG LAT</span><span class="sv" id="a-lat">--</span></div>
+          <div class="stat-row"><span class="sk">TURNS</span><span class="sv" id="a-turns">0</span></div>
+          <div class="stat-row"><span class="sk">SESSION</span><span class="sv" id="a-session">0m</span></div>
+        </div>
+
+        <div class="stat-sep"></div>
+        <div class="stat-header">LAST CALL</div>
+        <div class="stat-group">
+          <div class="stat-row"><span class="sk">IN</span><span class="sv" id="a-last-in">--</span></div>
+          <div class="stat-row"><span class="sk">OUT</span><span class="sv" id="a-last-out">--</span></div>
+          <div class="stat-row"><span class="sk">LAT</span><span class="sv" id="a-last-lat">--</span></div>
+        </div>
+
+        <div class="stat-sep"></div>
+        <div class="stat-header">MODEL</div>
+        <div class="stat-group">
+          <div class="sk dim" id="a-model">local-model</div>
+        </div>
+
+        <div class="stat-sep"></div>
+        <div class="stat-header">WHISPER</div>
+        <div class="stat-group">
+          <div id="a-whisper" class="whisper-loading">◌ LOADING</div>
+          <div id="a-whisper-prog" class="sk dim" style="font-size:10px;margin-top:2px"></div>
+        </div>
+
+        <div class="stat-sep"></div>
+        <div class="stat-header">SETTINGS</div>
+        <div class="stat-group">
+          <div class="stat-row"><span class="sk">HUMOR</span><span class="sv" id="a-humor">75%</span></div>
+          <div class="stat-row"><span class="sk">HONESTY</span><span class="sv" id="a-honesty">90%</span></div>
+          <div class="stat-row"><span class="sk">TTS</span><span class="sv" id="a-tts">ON</span></div>
+        </div>
+
+      </div>
+
+      <div class="panel-label">▹ CALL LOG</div>
+      <div id="call-log"></div>
+    </div>
+
+  </div>
+
+  <!-- ── STATUS BAR ─────────────────────────────────────────── -->
+  <div id="status-bar">
+    <div id="status-left">
+      <span id="status-dot">◌</span>
+      <span id="status-msg">INITIALIZING...</span>
+      <div id="waveform">
+        <span></span><span></span><span></span><span></span><span></span>
+      </div>
+    </div>
+    <div id="status-progress">░░░░░░░░░░░░░░░░░░░░</div>
+  </div>
+
+  <!-- ── CONTROLS ───────────────────────────────────────────── -->
+  <div id="controls">
+    <button class="ctrl-btn" id="btn-talk">
+      <span class="ctrl-key">[SPC]</span><span class="ctrl-lbl">TRANSMIT</span>
+    </button>
+    <button class="ctrl-btn" id="btn-type">
+      <span class="ctrl-key">[↵]</span><span class="ctrl-lbl">TYPE</span>
+    </button>
+    <button class="ctrl-btn" id="btn-clear">
+      <span class="ctrl-key">[C]</span><span class="ctrl-lbl">CLEAR</span>
+    </button>
+    <button class="ctrl-btn" id="btn-tts">
+      <span class="ctrl-key">[T]</span><span class="ctrl-lbl" id="tts-lbl">TTS:ON</span>
+    </button>
+    <button class="ctrl-btn" id="btn-stop">
+      <span class="ctrl-key">[S]</span><span class="ctrl-lbl">STOP</span>
+    </button>
+    <div style="flex:1"></div>
+    <button class="ctrl-btn danger" id="btn-quit">
+      <span class="ctrl-key">[Q]</span><span class="ctrl-lbl">ABORT</span>
+    </button>
+  </div>
+
+</div><!-- /#app -->
+
+<!-- ── TEXT INPUT OVERLAY ──────────────────────────────────── -->
+<div id="input-overlay" class="hidden">
+  <div id="input-box">
+    <div class="panel-label" style="margin-bottom:12px">▹ TRANSMIT MESSAGE</div>
+    <input type="text" id="text-input"
+      autocomplete="off" spellcheck="false"
+      placeholder="Enter transmission...">
+    <div id="input-actions">
+      <button id="cancel-btn">CANCEL [ESC]</button>
+      <button id="send-btn">TRANSMIT [↵]</button>
+    </div>
+  </div>
+</div>
+
+<script src="app.js"></script>
+</body>
+</html>

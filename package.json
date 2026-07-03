@@ -1,0 +1,29 @@
+{
+  "name": "tars-agent",
+  "version": "1.0.0",
+  "description": "TARS — Tactical Artificial Robot System",
+  "main": "dist/electron/main.js",
+  "scripts": {
+    "build": "tsc -p tsconfig.electron.json",
+    "prefetch": "tsx scripts/prefetch-whisper.ts",
+    "start": "npm run build && npm run prefetch && electron .",
+    "dev": "npm run build && npm run prefetch && NODE_ENV=development electron .",
+    "cli": "tsx src/index.ts",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@xenova/transformers": "^2.17.2",
+    "blessed": "^0.1.81",
+    "dotenv": "^16.4.5",
+    "node-record-lpcm16": "^1.0.1",
+    "onnxruntime-node": "^1.27.0",
+    "openai": "^4.67.3"
+  },
+  "devDependencies": {
+    "@types/blessed": "^0.1.25",
+    "@types/node": "^22.7.5",
+    "electron": "^43.0.0",
+    "tsx": "^4.19.1",
+    "typescript": "^5.6.3"
+  }
+}
