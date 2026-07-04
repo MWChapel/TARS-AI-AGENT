@@ -11,6 +11,8 @@ A local, voice-driven chatbot styled after TARS — the tactical robot from *Int
    ╚═╝   ╚═╝  ╚═╝╚═╝  ╚═╝╚══════╝
 ```
 
+![TARS Electron app — mission log, analytics, and oracle panel](./images/tarsscreen1.png)
+
 ## Features
 
 - **Local-first LLM** — talks to any OpenAI-compatible endpoint (default: [LM Studio](https://lmstudio.ai) at `localhost:1234`). No API key or internet connection required for chat itself.
