@@ -17,7 +17,7 @@ contextBridge.exposeInMainWorld('tars', {
     const allowed = [
       'state-change', 'whisper-progress', 'whisper-status',
       'token', 'user-message', 'response-complete',
-      'system-message', 'tts-state', 'call-log', 'telemetry-spectrum', 'voice-info',
+      'system-message', 'tts-state', 'telemetry-spectrum', 'voice-info', 'oracle-reading',
     ];
     if (allowed.includes(channel)) {
       ipcRenderer.on(channel, (_event, ...args) => cb(...args));

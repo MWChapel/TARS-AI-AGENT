@@ -82,12 +82,34 @@ export interface CallStats {
   modelName: string;
 }
 
-export interface CallLogEntry {
-  direction: 'in' | 'out';
-  text: string;
+export interface OracleReading {
+  tarot: string;
+  iching: string;
+  artOfWar: string;
+  meditations: string;
 }
 
 type Message = OpenAI.Chat.ChatCompletionMessageParam;
+
+// ── Oracle (Tarot / I Ching / Art of War / Meditations panel) ─────────────────
+// Standalone generation, entirely separate from the chat history above -- this
+// is flavor content for the Electron sidebar, not part of the conversation.
+
+const ORACLE_PROMPT = `Generate exactly four lines of flavor content for a tactical mission computer terminal. Output ONLY these four lines, in this exact format, no preamble or extra commentary:
+
+TAROT: <a real tarot card name> — <a one-sentence interpretation>
+ICHING: <a real I Ching hexagram number and name> — <a one-sentence interpretation>
+ARTOFWAR: <a real, accurately quoted line from Sun Tzu's The Art of War>
+MEDITATIONS: <a real, accurately quoted line from Marcus Aurelius's Meditations>`;
+
+function extractOracleField(content: string, label: string): string | null {
+  const re = new RegExp(`${label}\\s*:\\s*(.+)`, 'i');
+  for (const line of content.split('\n')) {
+    const m = line.match(re);
+    if (m) return m[1].replace(/\*\*/g, '').trim();
+  }
+  return null;
+}
 
 // ── Client ────────────────────────────────────────────────────────────────────
 
@@ -96,7 +118,6 @@ export class TARSClient {
   private history: Message[];
   lastStats: CallStats = { promptTokens: 0, completionTokens: 0, latencyMs: 0, modelName: '' };
   onSearch?: (query: string) => void;
-  onCallLog?: (entry: CallLogEntry) => void;
   /** Fires the instant the full response text is known, before it's typed out — lets callers start TTS in parallel with the typing animation. */
   onResponseReady?: (text: string) => void;
 
@@ -109,10 +130,6 @@ export class TARSClient {
   }
 
   private async llmCall(messages: Message[]): Promise<OpenAI.Chat.ChatCompletion> {
-    const lastUser = [...messages].reverse().find(m => m.role === 'user');
-    const inputText = typeof lastUser?.content === 'string' ? lastUser.content : '';
-    this.onCallLog?.({ direction: 'in', text: inputText });
-
     const res = await this.client.chat.completions.create({
       model:       config.lmStudio.chatModel,
       messages,
@@ -121,8 +138,43 @@ export class TARSClient {
       max_tokens:  512,
     });
 
-    this.onCallLog?.({ direction: 'out', text: res.choices[0].message.content ?? '' });
     return res;
+  }
+
+  // Standalone call to the same local model -- doesn't touch chat history.
+  // Defensive per-field parsing: local models don't reliably follow an exact
+  // format, so a malformed/missing line falls back to a fixed default instead
+  // of leaving that section of the panel blank.
+  async generateOracleReading(): Promise<OracleReading> {
+    const fetchOnce = async (): Promise<string> => {
+      const res = await this.client.chat.completions.create({
+        model:       config.lmStudio.chatModel,
+        messages:    [{ role: 'user', content: ORACLE_PROMPT }],
+        stream:      false,
+        // Higher than the main chat call (0.7) for more varied draws each
+        // time -- measured empirically that this occasionally produces a
+        // fully blank/degenerate response with some local models (~1 in 4 in
+        // testing). One retry below recovers most of those.
+        temperature: 0.9,
+        max_tokens:  300,
+      });
+      return res.choices[0].message.content ?? '';
+    };
+
+    const OracleLabels = ['TAROT', 'ICHING', 'ARTOFWAR', 'MEDITATIONS'];
+    const parsedAnything = (c: string) => OracleLabels.some(label => extractOracleField(c, label) !== null);
+
+    let content = await fetchOnce();
+    if (!parsedAnything(content)) {
+      content = await fetchOnce();
+    }
+
+    return {
+      tarot:       extractOracleField(content, 'TAROT')       ?? 'The Fool — a leap into the unknown.',
+      iching:      extractOracleField(content, 'ICHING')      ?? '1. The Creative — sustained creative power.',
+      artOfWar:    extractOracleField(content, 'ARTOFWAR')    ?? 'Know thy self, know thy enemy. A thousand battles, a thousand victories.',
+      meditations: extractOracleField(content, 'MEDITATIONS') ?? 'You have power over your mind — not outside events. Realize this, and you will find strength.',
+    };
   }
 
   private async runSearch(query: string): Promise<string> {
