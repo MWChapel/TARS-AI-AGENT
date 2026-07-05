@@ -212,7 +212,18 @@ export class TARSClient {
       messages,
       stream:      false,
       temperature: 0.7,
-      max_tokens:  512,
+      // Reasoning models (e.g. Gemma's thinking variant) spend a chunk of
+      // this budget on internal chain-of-thought (returned separately as
+      // reasoning_content) before ever writing to the actual `content` field
+      // -- verified 512 was too small: finish_reason came back "length" with
+      // reasoning_content showing the model still mid-deliberation and
+      // content completely empty. Non-reasoning models just stop earlier on
+      // their own EOS token, so this is a ceiling, not a forced length.
+      // Measured this model's reasoning length varying run-to-run (up to
+      // ~4100 tokens for one creative/constrained prompt), so 16384 leaves a
+      // healthy margin -- still only ~6% of the 262144-token context window
+      // some local models (e.g. this Gemma build) support.
+      max_tokens:  16384,
     });
 
     return res;
@@ -233,7 +244,14 @@ export class TARSClient {
         // fully blank/degenerate response with some local models (~1 in 4 in
         // testing). One retry below recovers most of those.
         temperature: 0.9,
-        max_tokens:  300,
+        // Same reasoning-model headroom concern as llmCall() above -- verified
+        // directly that even 4096 wasn't enough (finish_reason "length", 4093
+        // of 4095 tokens spent on reasoning, content still empty) for this
+        // particular model on this particular prompt (5 fields, each with its
+        // own format constraints, including syllable-counting a haiku -- the
+        // kind of fussy constraint reasoning models tend to obsess over).
+        // 16384 completed cleanly with room to spare (~2860 tokens used).
+        max_tokens:  16384,
       });
       return res.choices[0].message.content ?? '';
     };
