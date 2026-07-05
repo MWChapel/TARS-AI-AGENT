@@ -2,10 +2,11 @@ import OpenAI from 'openai';
 import { config } from '../config';
 import { webSearch, formatResults } from '../tools/search';
 
-// Picks who TARS is talking to for this session -- a single PERSON name is
-// always used as-is; multiple comma-separated names means one is picked at
-// random once (not re-rolled every turn, so TARS doesn't address a different
-// person mid-conversation). Unset (empty list) means no personalization.
+// Picks who TARS is talking to -- a single PERSON name is always used as-is;
+// multiple comma-separated names means one is picked at random. Re-rolled on
+// every turn (see TARSClient.refreshAddressee()) so a multi-name list doesn't
+// stick to one person for the whole session. Unset (empty list) means no
+// personalization.
 function pickAddressee(): string | null {
   const names = config.person.names;
   if (names.length === 0) return null;
@@ -131,12 +132,16 @@ function extractOracleField(content: string, label: string): string | null {
 // is expected to actually reply to it -- without that, the next real turn
 // would have no idea TARS had just asked something.
 
-function buildIdleTrigger(addressee: string | null): string {
-  const kind = Math.random() < 0.5
-    ? 'a short, fun trivia question'
-    : 'a lighthearted hypothetical or psychological question (e.g. a "would you rather", a quick thought experiment, or a fun personality-style question)';
+type IdleKind = 'trivia' | 'psych';
+
+const IDLE_KIND_TEXT: Record<IdleKind, string> = {
+  trivia: 'a short, fun trivia question',
+  psych: 'a lighthearted hypothetical or psychological question (e.g. a "would you rather", a quick thought experiment, or a fun personality-style question)',
+};
+
+function buildIdleTrigger(addressee: string | null, kind: IdleKind): string {
   const who = addressee ? ` Address ${addressee} by name.` : '';
-  return `[SYSTEM: It has been quiet for a while. Break the silence by asking ${kind}, in character, one or two sentences, no preamble.${who}]`;
+  return `[SYSTEM: It has been quiet for a while. Break the silence by asking ${IDLE_KIND_TEXT[kind]}, in character, one or two sentences, no preamble.${who}]`;
 }
 
 // ── Client ────────────────────────────────────────────────────────────────────
@@ -146,6 +151,7 @@ export class TARSClient {
   private history: Message[];
   private addressee: string | null;
   private lastActivityAt = Date.now();
+  private lastIdleKind: IdleKind | null = null;
   lastStats: CallStats = { promptTokens: 0, completionTokens: 0, latencyMs: 0, modelName: '' };
   onSearch?: (query: string) => void;
   /** Fires the instant the full response text is known, before it's typed out — lets callers start TTS in parallel with the typing animation. */
@@ -158,6 +164,26 @@ export class TARSClient {
     });
     this.addressee = pickAddressee();
     this.history = [{ role: 'system', content: buildSystemPrompt(this.addressee) }];
+  }
+
+  // Re-rolls who TARS is addressing and rewrites the system message in place
+  // -- called at the start of every chat()/idlePrompt() turn so a multi-name
+  // PERSON list actually varies across the conversation instead of sticking
+  // to whoever was picked at startup.
+  private refreshAddressee(): void {
+    this.addressee = pickAddressee();
+    this.history[0] = { role: 'system', content: buildSystemPrompt(this.addressee) };
+  }
+
+  // Strictly alternates trivia <-> psych so idlePrompt() is never the same
+  // kind twice in a row -- the first pick (nothing to alternate from yet) is
+  // random for variety across sessions.
+  private nextIdleKind(): IdleKind {
+    const kind: IdleKind = this.lastIdleKind === null
+      ? (Math.random() < 0.5 ? 'trivia' : 'psych')
+      : (this.lastIdleKind === 'trivia' ? 'psych' : 'trivia');
+    this.lastIdleKind = kind;
+    return kind;
   }
 
   /** Milliseconds since the last real chat() turn -- used by callers to decide when to trigger idlePrompt(). */
@@ -250,6 +276,7 @@ export class TARSClient {
 
   async *chat(userMessage: string): AsyncGenerator<string> {
     this.lastActivityAt = Date.now();
+    this.refreshAddressee();
     const startTime = Date.now();
     const modelName = config.lmStudio.chatModel;
 
@@ -302,12 +329,14 @@ export class TARSClient {
   }
 
   // Proactively breaks a long silence with a trivia or fun psychological
-  // question, addressed to the same person picked at startup (if configured).
-  // Folded into real history (unlike generateOracleReading) so a reply from
-  // the user lands with full context -- TARS actually remembers asking.
+  // question -- strictly alternating between the two (see nextIdleKind()),
+  // addressed to a freshly re-rolled person if PERSON is configured. Folded
+  // into real history (unlike generateOracleReading) so a reply from the
+  // user lands with full context -- TARS actually remembers asking.
   async *idlePrompt(): AsyncGenerator<string> {
+    this.refreshAddressee();
     const startTime = Date.now();
-    const trigger = buildIdleTrigger(this.addressee);
+    const trigger = buildIdleTrigger(this.addressee, this.nextIdleKind());
 
     this.history.push({ role: 'user', content: trigger });
     const r = await this.llmCall(this.history);
