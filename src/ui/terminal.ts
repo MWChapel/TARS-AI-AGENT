@@ -83,6 +83,9 @@ export class TARSTerminal {
   private whisperState: 'loading' | 'ready' | 'disabled' | 'error' = 'disabled';
   private whisperProgress = '';
 
+  // Idle prompt (trivia / fun question after a long silence) -- see startIdleWatch().
+  private idleThresholdMs = this.randomIdleThreshold();
+
   // Populated async (a live /health check when Qwen TTS is in use) -- see constructor.
   private voiceInfo: VoiceInfo = {
     engine: config.qwenTts.enabled ? 'QWEN3-TTS' : 'SAY',
@@ -150,6 +153,8 @@ export class TARSTerminal {
       this.voiceInfo = v;
       this.render();
     });
+
+    this.startIdleWatch();
 
     this.render();
   }
@@ -471,14 +476,15 @@ export class TARSTerminal {
 
   // ── Core LLM pipeline ─────────────────────────────────────────────────────
 
-  private async processInput(text: string): Promise<void> {
-    this.addUserMessage(text);
+  // Shared by both a real user turn and a proactive idle prompt below -- same
+  // token-forwarding, TTS-parallel-with-typing, and error-handling logic
+  // either way, just a different async generator feeding it.
+  private async runTurn(gen: AsyncGenerator<string>): Promise<void> {
     this.setState('thinking');
     this.streamBuffer = '';
     this.render();
 
     try {
-      const gen = this.tarsClient.chat(text);
       let full = '';
       let speakPromise: Promise<void> = Promise.resolve();
 
@@ -510,6 +516,33 @@ export class TARSTerminal {
       this.streamBuffer = '';
       this.handleError(err);
     }
+  }
+
+  private async processInput(text: string): Promise<void> {
+    this.addUserMessage(text);
+    await this.runTurn(this.tarsClient.chat(text));
+  }
+
+  // ── Idle prompt (breaks a long silence with trivia or a fun question) ─────
+  // No addUserMessage() call here -- TARS is volunteering this, not
+  // responding to something the user said, so no "YOU" line should appear.
+
+  private randomIdleThreshold(): number {
+    const IDLE_MIN_MS = 5 * 60 * 1000;
+    const IDLE_MAX_MS = 10 * 60 * 1000;
+    return IDLE_MIN_MS + Math.random() * (IDLE_MAX_MS - IDLE_MIN_MS);
+  }
+
+  private startIdleWatch(): void {
+    const IDLE_CHECK_INTERVAL_MS = 30_000;
+    setInterval(() => {
+      if (!config.idlePrompt.enabled) return;
+      if (this.state !== 'idle') return;
+      if (this.tarsClient.msSinceLastActivity() < this.idleThresholdMs) return;
+
+      this.idleThresholdMs = this.randomIdleThreshold(); // reroll before firing, not after
+      void this.runTurn(this.tarsClient.idlePrompt());
+    }, IDLE_CHECK_INTERVAL_MS);
   }
 
   // ── Chat content helpers ──────────────────────────────────────────────────

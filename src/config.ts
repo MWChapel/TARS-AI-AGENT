@@ -32,4 +32,16 @@ export const config = {
     braveApiKey: process.env.BRAVE_SEARCH_API_KEY || null,
     enabled: process.env.SEARCH_ENABLED !== 'false',
   },
+  person: {
+    // PERSON=Michael or PERSON=Michael,Lynda,Olivia -- a single name is always
+    // used; multiple names means one is picked at random per session. Unset
+    // (default) means no personalization at all.
+    names: (process.env.PERSON ?? '')
+      .split(',')
+      .map(s => s.trim())
+      .filter(Boolean),
+  },
+  idlePrompt: {
+    enabled: process.env.IDLE_PROMPT_ENABLED !== 'false',
+  },
 } as const;

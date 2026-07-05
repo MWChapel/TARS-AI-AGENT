@@ -2,7 +2,21 @@ import OpenAI from 'openai';
 import { config } from '../config';
 import { webSearch, formatResults } from '../tools/search';
 
-function buildSystemPrompt(): string {
+// Picks who TARS is talking to for this session -- a single PERSON name is
+// always used as-is; multiple comma-separated names means one is picked at
+// random once (not re-rolled every turn, so TARS doesn't address a different
+// person mid-conversation). Unset (empty list) means no personalization.
+function pickAddressee(): string | null {
+  const names = config.person.names;
+  if (names.length === 0) return null;
+  return names[Math.floor(Math.random() * names.length)];
+}
+
+function buildSystemPrompt(addressee: string | null): string {
+  const personLine = addressee
+    ? `\n- You are currently speaking with ${addressee}. Address them by name when it's natural (greetings, check-ins) — don't force it into every sentence.`
+    : '';
+
   return `You are TARS: a tactical robot AI unit with a distinct personality — direct, dry-witted, efficient. You exist here, in the real world, talking with the user about their actual life and questions.
 
 Personality dials:
@@ -20,7 +34,7 @@ Communication rules:
 - Reference your physical form when natural: "this unit", "my sensors", "my manipulators."
 - Keep responses tight — you process and transmit efficiently.
 - When context includes web search results, use them to give accurate, current answers.
-- IMPORTANT: Do NOT output tool call syntax, XML tags, or function calls in your response. Just answer directly.`;
+- IMPORTANT: Do NOT output tool call syntax, XML tags, or function calls in your response. Just answer directly.${personLine}`;
 }
 
 // ── Query heuristics ──────────────────────────────────────────────────────────
@@ -112,11 +126,26 @@ function extractOracleField(content: string, label: string): string | null {
   return null;
 }
 
+// ── Idle prompt (breaks a long silence with trivia or a fun question) ────────
+// Folded into the real chat history (unlike the Oracle above) since the user
+// is expected to actually reply to it -- without that, the next real turn
+// would have no idea TARS had just asked something.
+
+function buildIdleTrigger(addressee: string | null): string {
+  const kind = Math.random() < 0.5
+    ? 'a short, fun trivia question'
+    : 'a lighthearted hypothetical or psychological question (e.g. a "would you rather", a quick thought experiment, or a fun personality-style question)';
+  const who = addressee ? ` Address ${addressee} by name.` : '';
+  return `[SYSTEM: It has been quiet for a while. Break the silence by asking ${kind}, in character, one or two sentences, no preamble.${who}]`;
+}
+
 // ── Client ────────────────────────────────────────────────────────────────────
 
 export class TARSClient {
   private client: OpenAI;
   private history: Message[];
+  private addressee: string | null;
+  private lastActivityAt = Date.now();
   lastStats: CallStats = { promptTokens: 0, completionTokens: 0, latencyMs: 0, modelName: '' };
   onSearch?: (query: string) => void;
   /** Fires the instant the full response text is known, before it's typed out — lets callers start TTS in parallel with the typing animation. */
@@ -127,7 +156,13 @@ export class TARSClient {
       baseURL: config.lmStudio.baseURL,
       apiKey:  config.lmStudio.apiKey,
     });
-    this.history = [{ role: 'system', content: buildSystemPrompt() }];
+    this.addressee = pickAddressee();
+    this.history = [{ role: 'system', content: buildSystemPrompt(this.addressee) }];
+  }
+
+  /** Milliseconds since the last real chat() turn -- used by callers to decide when to trigger idlePrompt(). */
+  msSinceLastActivity(): number {
+    return Date.now() - this.lastActivityAt;
   }
 
   private async llmCall(messages: Message[]): Promise<OpenAI.Chat.ChatCompletion> {
@@ -214,6 +249,7 @@ export class TARSClient {
   }
 
   async *chat(userMessage: string): AsyncGenerator<string> {
+    this.lastActivityAt = Date.now();
     const startTime = Date.now();
     const modelName = config.lmStudio.chatModel;
 
@@ -260,6 +296,34 @@ export class TARSClient {
     this.history.pop();
     this.history.push({ role: 'user',      content: userMessage });
     this.history.push({ role: 'assistant', content });
+
+    this.onResponseReady?.(content);
+    yield* this.typeOut(content);
+  }
+
+  // Proactively breaks a long silence with a trivia or fun psychological
+  // question, addressed to the same person picked at startup (if configured).
+  // Folded into real history (unlike generateOracleReading) so a reply from
+  // the user lands with full context -- TARS actually remembers asking.
+  async *idlePrompt(): AsyncGenerator<string> {
+    const startTime = Date.now();
+    const trigger = buildIdleTrigger(this.addressee);
+
+    this.history.push({ role: 'user', content: trigger });
+    const r = await this.llmCall(this.history);
+    const content = stripToolMarkup(r.choices[0].message.content ?? '');
+    this.history.push({ role: 'assistant', content });
+
+    this.lastStats = {
+      promptTokens:     r.usage?.prompt_tokens     ?? 0,
+      completionTokens: r.usage?.completion_tokens ?? 0,
+      latencyMs:        Date.now() - startTime,
+      modelName:        r.model ?? config.lmStudio.chatModel,
+    };
+
+    // TARS just "spoke" -- treat this like real activity so it doesn't
+    // immediately fire again the moment the idle window re-opens.
+    this.lastActivityAt = Date.now();
 
     this.onResponseReady?.(content);
     yield* this.typeOut(content);

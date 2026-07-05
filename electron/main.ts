@@ -81,15 +81,27 @@ async function refreshVoiceInfoUntilReady(): Promise<void> {
 const ORACLE_REFRESH_MS = 5 * 60 * 1000;
 let oracleIntervalStarted = false;
 
+// Both the Oracle refresh and the idle prompt below are background calls to
+// the same local model, outside of a normal user turn -- appState alone
+// doesn't protect them from each other: generateOracleReading() doesn't (and
+// shouldn't) flip appState away from 'idle' while it's in flight, since it's
+// not a user-facing "TARS is thinking" moment. Without this flag, the idle
+// timer could see appState still 'idle' mid-Oracle-refresh and fire a second,
+// concurrent request at the same model.
+let backgroundLlmBusy = false;
+
 async function refreshOracle(): Promise<void> {
-  // Skip a cycle rather than queue behind an in-flight chat turn -- the next
-  // timer tick will just try again.
-  if (appState !== 'idle') return;
+  // Skip a cycle rather than queue behind an in-flight chat turn (or idle
+  // prompt) -- the next timer tick will just try again.
+  if (appState !== 'idle' || backgroundLlmBusy) return;
+  backgroundLlmBusy = true;
   try {
     const reading = await tarsClient.generateOracleReading();
     send('oracle-reading', reading);
   } catch (err) {
     console.warn('[oracle] generation failed:', err instanceof Error ? err.message : err);
+  } finally {
+    backgroundLlmBusy = false;
   }
 }
 
@@ -118,13 +130,13 @@ function initWhisper(): void {
 
 // ── Voice pipeline ────────────────────────────────────────────────────────────
 
-async function processInput(text: string): Promise<void> {
-  send('user-message', { text });
+// Shared by both a real user turn and a proactive idle prompt below -- same
+// token-forwarding, TTS-parallel-with-typing, and error-handling logic either
+// way, just a different async generator feeding it.
+async function runTurn(gen: AsyncGenerator<string>): Promise<void> {
   setState('thinking');
 
   try {
-    const gen = tarsClient.chat(text);
-    let full = '';
     let speakPromise: Promise<void> = Promise.resolve();
 
     // Fires as soon as the full response is known (before it's typed out),
@@ -136,7 +148,6 @@ async function processInput(text: string): Promise<void> {
     };
 
     for await (const token of gen) {
-      full += token;
       send('token', { text: token });
     }
 
@@ -154,6 +165,40 @@ async function processInput(text: string): Promise<void> {
     setState('error');
     setTimeout(() => { if (appState === 'error') setState('idle'); }, 5000);
   }
+}
+
+async function processInput(text: string): Promise<void> {
+  send('user-message', { text });
+  await runTurn(tarsClient.chat(text));
+}
+
+// ── Idle prompt (breaks a long silence with trivia or a fun question) ────────
+// No 'user-message' is sent for this -- TARS is volunteering it, not
+// responding to something the user said, so no "YOU" bubble should appear.
+
+const IDLE_CHECK_INTERVAL_MS = 30_000;
+const IDLE_MIN_MS = 5 * 60 * 1000;
+const IDLE_MAX_MS = 10 * 60 * 1000;
+
+function randomIdleThreshold(): number {
+  return IDLE_MIN_MS + Math.random() * (IDLE_MAX_MS - IDLE_MIN_MS);
+}
+
+let idleThresholdMs = randomIdleThreshold();
+
+function startIdleWatch(): void {
+  setInterval(() => {
+    if (!config.idlePrompt.enabled) return;
+    // backgroundLlmBusy also covers an in-flight Oracle refresh -- appState
+    // alone wouldn't catch that, since Oracle generation deliberately doesn't
+    // touch appState (it's not a user-facing "thinking" moment).
+    if (appState !== 'idle' || backgroundLlmBusy) return;
+    if (tarsClient.msSinceLastActivity() < idleThresholdMs) return;
+
+    idleThresholdMs = randomIdleThreshold(); // reroll before firing, not after
+    backgroundLlmBusy = true;
+    void runTurn(tarsClient.idlePrompt()).finally(() => { backgroundLlmBusy = false; });
+  }, IDLE_CHECK_INTERVAL_MS);
 }
 
 // ── IPC handlers ──────────────────────────────────────────────────────────────
@@ -305,6 +350,8 @@ async function createWindow(): Promise<void> {
 // existing QwenSpeaker fallback (see createSpeaker.ts) already handles "not
 // ready yet" by falling back to the say voice, so nothing needs to block on it.
 void startTtsServerIfNeeded();
+
+startIdleWatch();
 
 app.whenReady().then(createWindow);
 
