@@ -23,6 +23,11 @@ export const config = {
     enabled:   process.env.QWEN_TTS_ENABLED === 'true',
     url:       process.env.QWEN_TTS_URL ?? 'http://127.0.0.1:8008',
     timeoutMs: parseInt(process.env.QWEN_TTS_TIMEOUT_MS ?? '30000', 10),
+    // Playback speed applied via sox's `tempo` effect (pitch-preserving time
+    // stretch, not a raw sample-rate/pitch change) -- the model itself has no
+    // native speed control. <1.0 slower, >1.0 faster. Default nudged slightly
+    // below 1.0 since the default pace read a bit fast.
+    speed:     parseFloat(process.env.QWEN_TTS_SPEED ?? '0.9'),
   },
   tars: {
     humor: parseInt(process.env.TARS_HUMOR ?? '75', 10),

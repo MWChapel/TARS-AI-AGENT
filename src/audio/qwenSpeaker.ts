@@ -150,9 +150,18 @@ export class QwenSpeaker implements SpeakerLike {
     });
     if (!res.ok || !res.body) throw new Error(`Qwen TTS server HTTP ${res.status}`);
 
+    // `tempo` (pitch-preserving time-stretch, `-s` = speech-tuned profile) is
+    // how playback speed is controlled -- the model itself has no native
+    // speed parameter. Omitted entirely at 1.0 rather than passed as a
+    // literal no-op, since sox's tempo effect isn't free to run.
+    const soxArgs = ['-q', '-t', 'raw', '-r', String(SAMPLE_RATE), '-e', 'signed', '-b', '16', '-c', '1', '-', '-d'];
+    if (config.qwenTts.speed !== 1) {
+      soxArgs.push('tempo', '-s', String(config.qwenTts.speed));
+    }
+
     const sox = spawn(
       SOX_BIN,
-      ['-q', '-t', 'raw', '-r', String(SAMPLE_RATE), '-e', 'signed', '-b', '16', '-c', '1', '-', '-d'],
+      soxArgs,
       { stdio: ['pipe', 'ignore', 'pipe'] }
     );
     this.process = sox;
