@@ -50,6 +50,23 @@ async function duckduckgoSearch(query: string, maxResults: number): Promise<Sear
   });
   if (!res.ok) throw new Error(`DDG HTTP ${res.status}`);
   const html = await res.text();
+
+  // DuckDuckGo occasionally serves an anti-bot CAPTCHA challenge ("Select all
+  // squares containing a duck") instead of real results -- verified this
+  // happens under realistic usage (a handful of searches in one session), not
+  // just aggressive scraping. Without this check, a blocked request silently
+  // parses to zero results, indistinguishable from "the web genuinely has no
+  // info about this" -- which is exactly the kind of false signal that leads
+  // to confident hallucination instead of TARS honestly saying the search
+  // failed. Throw distinctly instead so the caller (and the model) knows the
+  // difference.
+  if (html.includes('anomaly-modal') || html.includes('anomaly.js')) {
+    throw new Error(
+      'DuckDuckGo blocked this request as automated traffic (CAPTCHA challenge) -- ' +
+      'no results retrieved. Set BRAVE_SEARCH_API_KEY for a more reliable backend.'
+    );
+  }
+
   return parseDDGHtml(html, maxResults);
 }
 

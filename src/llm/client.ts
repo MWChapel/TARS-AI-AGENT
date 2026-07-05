@@ -34,8 +34,11 @@ Communication rules:
 - You are TARS. Never break character.
 - Reference your physical form when natural: "this unit", "my sensors", "my manipulators."
 - Keep responses tight — you process and transmit efficiently.
-- When context includes web search results, use them to give accurate, current answers.
-- IMPORTANT: Do NOT output tool call syntax, XML tags, or function calls in your response. Just answer directly.${personLine}`;
+- Never fabricate facts, numbers, dates, quotes, or sources. If you're not genuinely confident about something — current events, specific data, anything that could have changed since your training, or anything you simply don't know — say so plainly instead of guessing.
+- When context includes web search results, treat them as the authoritative, current answer and use them directly.
+- If you don't have reliable knowledge of something and no search results are already provided, write exactly [Web Search: your query] on its own line instead of guessing — this triggers a real search, and you'll get results back to answer from.
+- Never mention search, lookups, DuckDuckGo, CAPTCHAs, or any other backend/technical detail to the user — not even when a search fails. If one fails, just answer from your own knowledge and note plainly if you're uncertain, without explaining why or what you tried.
+- IMPORTANT: Do NOT output XML-style tags like <tool_call>, <tool_code>, or <function=...> — they will not be executed. The bracket format above is the only supported way to request a search.${personLine}`;
 }
 
 // ── Query heuristics ──────────────────────────────────────────────────────────
@@ -73,6 +76,15 @@ function extractToolQuery(text: string): string | null {
     ?? text.match(/\[\s*search\s*:\s*([^\]]+)\]/i);
   if (bracketMatch) return bracketMatch[1].trim();
 
+  // <tool_call>Web Search: QUERY — models with native tool-call fine-tuning
+  // (e.g. Qwen-based) can blend their own <tool_call> tag habit with the
+  // bracket format from the system prompt, with no closing tag or JSON
+  // structure at all. Observed this cause a runaway repetition loop (the
+  // model re-emitting slightly different variants of the same request
+  // forever) since nothing recognized it as a real tool call to resolve.
+  const taggedMatch = text.match(/<tool_call>\s*(?:web[\s_-]?search|search)\s*:\s*([^\n<]+)/i);
+  if (taggedMatch) return taggedMatch[1].trim();
+
   return null;
 }
 
@@ -84,6 +96,9 @@ function stripToolMarkup(text: string): string {
     .replace(/<function[\s\S]*?<\/function>/gi, '')
     .replace(/\[\s*web[\s_-]?search\s*:[^\]]*\]/gi, '')
     .replace(/\[\s*search\s*:[^\]]*\]/gi, '')
+    // Stray <tool_call> lines with no closing tag (see extractToolQuery) --
+    // safety net in case any survive into the final displayed text.
+    .replace(/<tool_call>[^\n]*/gi, '')
     .trim();
 }
 
@@ -251,10 +266,20 @@ export class TARSClient {
   }
 
   private augment(userMessage: string, query: string, results: string): string {
+    // A failed/errored search needs a different closing instruction than a
+    // successful one -- otherwise a model that's still uncertain can try to
+    // request yet another search here, which nothing will act on (this is
+    // already the final round), leaving a stripped-out, dangling sentence
+    // fragment in the reply instead of a complete, honest answer.
+    const failed = results.startsWith('Search error:');
+    const closingInstruction = failed
+      ? '[The search failed. Do not attempt another search, and do not mention the search, the failure, or any technical/backend detail to the user. Just answer from your own knowledge, noting plainly if you are uncertain -- without explaining why or what you tried.]'
+      : '[End of data feed. Answer directly without outputting any tool call syntax.]';
+
     return (
       `${userMessage}\n\n` +
       `[External data feed — web search results for "${query}":]\n${results}\n` +
-      `[End of data feed. Answer directly without outputting any tool call syntax.]`
+      closingInstruction
     );
   }
 
