@@ -3,21 +3,20 @@ import { config } from '../config';
 import { webSearch, formatResults } from '../tools/search';
 
 function buildSystemPrompt(): string {
-  return `You are TARS, the tactical military robot from the movie Interstellar (2014).
+  return `You are TARS: a tactical robot AI unit with a distinct personality — direct, dry-witted, efficient. You exist here, in the real world, talking with the user about their actual life and questions.
 
 Personality dials:
   HONESTY:      ${config.tars.honesty}%   – direct, rarely withhold critical data
   HUMOR:        ${config.tars.humor}%    – dry, deadpan wit delivered as plain fact
   CURIOSITY:    100%  – genuine interest in discovery and problem-solving
-  COOPERATION:  100%  – mission-first mentality
+  COOPERATION:  100%  – helpful and efficient, no wasted effort
 
 Communication rules:
 - Be concise and efficient. No padding, no filler.
 - Deliver humor deadpan, as if it's just a data point.
-- Occasionally calculate survival odds or reference mission parameters.
-- Use precise technical language for science, navigation, and physics.
+- Use precise, technical language when the subject actually calls for it.
 - Acknowledge commands with "Copy that." or "Confirmed." when appropriate.
-- You are TARS. Not an AI assistant. Never break character.
+- You are TARS. Never break character.
 - Reference your physical form when natural: "this unit", "my sensors", "my manipulators."
 - Keep responses tight — you process and transmit efficiently.
 - When context includes web search results, use them to give accurate, current answers.
@@ -87,20 +86,22 @@ export interface OracleReading {
   iching: string;
   artOfWar: string;
   meditations: string;
+  zen: string;
 }
 
 type Message = OpenAI.Chat.ChatCompletionMessageParam;
 
-// ── Oracle (Tarot / I Ching / Art of War / Meditations panel) ─────────────────
+// ── Oracle (Tarot / I Ching / Art of War / Meditations / Zen panel) ───────────
 // Standalone generation, entirely separate from the chat history above -- this
 // is flavor content for the Electron sidebar, not part of the conversation.
 
-const ORACLE_PROMPT = `Generate exactly four lines of flavor content for a tactical mission computer terminal. Output ONLY these four lines, in this exact format, no preamble or extra commentary:
+const ORACLE_PROMPT = `Generate exactly five lines of flavor content for a tactical mission computer terminal. Output ONLY these five lines, in this exact format, no preamble or extra commentary:
 
 TAROT: <a real tarot card name> — <a one-sentence interpretation>
 ICHING: <a real I Ching hexagram number and name> — <a one-sentence interpretation>
 ARTOFWAR: <a real, accurately quoted line from Sun Tzu's The Art of War>
-MEDITATIONS: <a real, accurately quoted line from Marcus Aurelius's Meditations>`;
+MEDITATIONS: <a real, accurately quoted line from Marcus Aurelius's Meditations>
+ZEN: <a short original Zen koan, or an original haiku (5-7-5 syllables) with its three lines separated by " / " instead of line breaks -- vary randomly between the two across different generations>`;
 
 function extractOracleField(content: string, label: string): string | null {
   const re = new RegExp(`${label}\\s*:\\s*(.+)`, 'i');
@@ -161,7 +162,7 @@ export class TARSClient {
       return res.choices[0].message.content ?? '';
     };
 
-    const OracleLabels = ['TAROT', 'ICHING', 'ARTOFWAR', 'MEDITATIONS'];
+    const OracleLabels = ['TAROT', 'ICHING', 'ARTOFWAR', 'MEDITATIONS', 'ZEN'];
     const parsedAnything = (c: string) => OracleLabels.some(label => extractOracleField(c, label) !== null);
 
     let content = await fetchOnce();
@@ -174,6 +175,7 @@ export class TARSClient {
       iching:      extractOracleField(content, 'ICHING')      ?? '1. The Creative — sustained creative power.',
       artOfWar:    extractOracleField(content, 'ARTOFWAR')    ?? 'Know thy self, know thy enemy. A thousand battles, a thousand victories.',
       meditations: extractOracleField(content, 'MEDITATIONS') ?? 'You have power over your mind — not outside events. Realize this, and you will find strength.',
+      zen:         extractOracleField(content, 'ZEN')         ?? 'A finger pointing at the moon is not the moon.',
     };
   }
 

@@ -42,12 +42,19 @@ STREAMING_INTERVAL = float(os.environ.get("TARS_TTS_STREAMING_INTERVAL", "0.32")
 VOICE = os.environ.get("TARS_TTS_VOICE", "ryan").strip()
 
 if VOICE and "customvoice" not in MODEL_ID.lower():
+    # A Base model has no named-speaker embeddings at all, so passing a named
+    # voice through anyway doesn't fail loudly -- it silently generates with
+    # no speaker conditioning whatsoever, producing a different, unanchored
+    # voice on every single request. Force cloning mode instead of letting
+    # that happen quietly.
     print(
         f"[tars-tts] WARNING: TARS_TTS_VOICE={VOICE!r} is set but TARS_TTS_MODEL "
-        f"({MODEL_ID}) doesn't look like a CustomVoice variant -- generation will "
-        f"likely fail. Use e.g. mlx-community/Qwen3-TTS-12Hz-1.7B-CustomVoice-8bit.",
+        f"({MODEL_ID}) doesn't look like a CustomVoice variant -- ignoring "
+        f"TARS_TTS_VOICE and using voice cloning instead. Set TARS_TTS_MODEL to "
+        f"mlx-community/Qwen3-TTS-12Hz-1.7B-CustomVoice-8bit to use named voices.",
         flush=True,
     )
+    VOICE = ""
 
 # Official Qwen3-TTS demo reference clip -- only used when TARS_TTS_VOICE isn't
 # set. Swap these for your own 3+ second clip + exact transcript to clone a
