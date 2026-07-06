@@ -18,7 +18,7 @@ A local, voice-driven chatbot styled after TARS — the tactical robot from *Int
 - **Local-first LLM** — talks to any OpenAI-compatible endpoint (default: [LM Studio](https://lmstudio.ai) at `localhost:1234`). No API key or internet connection required for chat itself.
 - **In-character persona** — TARS's HUMOR / HONESTY dials are configurable and baked into the system prompt; responses stay in character and strip any leaked tool-call markup.
 - **Personalization** (optional) — set `PERSON` to a name (or a comma-separated list) and TARS addresses you by name when it's natural. A list picks one name at random, re-rolled on every turn, so it doesn't stick to addressing the same person the whole conversation. Unset means no personalization at all.
-- **Proactive idle prompt** (optional, on by default) — after 5-10 minutes (randomized) of silence, TARS breaks in with a short trivia question or a fun hypothetical/psychological question — strictly alternating between the two, never the same kind twice in a row — addressed to `PERSON` if set. It's folded into real conversation history, so if you reply, TARS actually remembers having asked. Disable with `IDLE_PROMPT_ENABLED=false`.
+- **Proactive idle prompt** (optional, on by default) — after 5-10 minutes (randomized) of silence, TARS breaks in with a short trivia question or a fun hypothetical/psychological question — strictly alternating between the two, never the same kind twice in a row — addressed to `PERSON` if set. It's folded into real conversation history, so if you reply, TARS actually remembers having asked. Disable by default with `IDLE_PROMPT_ENABLED=false`, or toggle it live with the `I` key (terminal) / `[I] IDLE:ON` button (Electron) — same on/off pattern as the TTS toggle.
 - **Live typing animation** — responses are paced out character-by-character instead of appearing all at once, and text-to-speech starts in parallel with the typing (not after it finishes) — see `TARSClient.onResponseReady` / `typeOut()` in `src/llm/client.ts`.
 - **Voice input** — fully local speech-to-text via [Whisper](https://github.com/openai/whisper) (through `@xenova/transformers`, running in a separate Node worker process so the model never touches Electron's ABI). Model weights are downloaded once and cached at `~/.cache/tars-agent/`.
 - **Voice output** — text-to-speech via macOS's built-in `say` command by default (no network calls, no extra dependencies). Optionally swap in a much higher-quality voice via a local [Qwen3-TTS](https://github.com/QwenLM/Qwen3-TTS) server running natively on Apple Silicon via [MLX](https://github.com/Blaizzy/mlx-audio), streaming audio as it's generated (~500ms to first sound) — either clone a reference clip, or pick one of 9 built-in named voices, both configurable via `tts-server/.env` — see [`tts-server/README.md`](./tts-server/README.md). Automatically falls back to `say` if that server isn't running.
@@ -81,6 +81,7 @@ A local, voice-driven chatbot styled after TARS — the tactical robot from *Int
 | `ENTER` | Open a text input prompt |
 | `C` | Clear conversation history — resets the mission log, the LLM's conversation history, and all analytics counters (tokens, turns, latency) back to zero |
 | `T` | Toggle text-to-speech on/off |
+| `I` | Toggle the proactive idle prompt on/off |
 | `S` | Stop TARS mid-speech |
 | `Q` / `Ctrl+C` | Quit |
 

@@ -84,6 +84,7 @@ export class TARSTerminal {
   private whisperProgress = '';
 
   // Idle prompt (trivia / fun question after a long silence) -- see startIdleWatch().
+  private idlePromptEnabled = config.idlePrompt.enabled;
   private idleThresholdMs = this.randomIdleThreshold();
 
   // Populated async (a live /health check when Qwen TTS is in use) -- see constructor.
@@ -293,6 +294,7 @@ export class TARSTerminal {
       row('HUMOR', `${config.tars.humor}%`),
       row('HONESTY', `${config.tars.honesty}%`),
       row('TTS', this.ttsEnabled ? 'ON' : 'OFF'),
+      row('IDLE', this.idlePromptEnabled ? 'ON' : 'OFF'),
       sep,
       c.dim(' WHISPER'),
       ` ${this.whisperStateLabel()}`,
@@ -337,6 +339,7 @@ export class TARSTerminal {
         key('ENTER', 'TYPE'),
         key('C', 'CLEAR'),
         key('T', `TTS:${this.ttsEnabled ? 'ON' : 'OFF'}`),
+        key('I', `IDLE:${this.idlePromptEnabled ? 'ON' : 'OFF'}`),
         key('S', 'STOP'),
         key('Q', 'QUIT'),
       ].join('  ')
@@ -391,6 +394,12 @@ export class TARSTerminal {
     this.screen.key(['t'], () => {
       this.ttsEnabled = !this.ttsEnabled;
       this.addSystemMessage(`TTS ${this.ttsEnabled ? 'ENABLED' : 'DISABLED'}`);
+      this.render();
+    });
+
+    this.screen.key(['i'], () => {
+      this.idlePromptEnabled = !this.idlePromptEnabled;
+      this.addSystemMessage(`IDLE PROMPT ${this.idlePromptEnabled ? 'ENABLED' : 'DISABLED'}`);
       this.render();
     });
 
@@ -536,7 +545,7 @@ export class TARSTerminal {
   private startIdleWatch(): void {
     const IDLE_CHECK_INTERVAL_MS = 30_000;
     setInterval(() => {
-      if (!config.idlePrompt.enabled) return;
+      if (!this.idlePromptEnabled) return;
       if (this.state !== 'idle') return;
       if (this.tarsClient.msSinceLastActivity() < this.idleThresholdMs) return;
 

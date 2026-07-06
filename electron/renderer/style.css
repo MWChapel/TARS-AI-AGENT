@@ -339,7 +339,7 @@ body.state-error      #state-dot { color: var(--red); text-shadow: 0 0 12px var(
 
 /* ── ANALYTICS PANEL ──────────────────────────────────────────────────────── */
 #analytics-panel {
-  width: 374px;
+  width: 299px; /* 20% thinner than the previous 374px */
   flex-shrink: 0;
   display: flex;
   flex-direction: column;
@@ -460,6 +460,11 @@ body.state-error      #state-dot { color: var(--red); text-shadow: 0 0 12px var(
 
 /* ── STATUS BAR ───────────────────────────────────────────────────────────── */
 #status-bar {
+  /* Same amber/orange override as #header -- see the comment there. */
+  --green:      #ffb000;
+  --green-dim:  #8a5a00;
+  --green-dark: #3d2400;
+
   flex-shrink: 0;
   display: flex;
   justify-content: space-between;
@@ -484,7 +489,7 @@ body.state-error      #state-dot { color: var(--red); text-shadow: 0 0 12px var(
 }
 
 #status-msg {
-  color: #80ff80;
+  color: #ffb84d;
   letter-spacing: 0.5px;
 }
 
@@ -533,13 +538,18 @@ body.state-error       #status-dot { color: var(--red); }
 
 /* ── CONTROLS ─────────────────────────────────────────────────────────────── */
 #controls {
+  /* Same amber/orange override as #header -- see the comment there. */
+  --green:      #ffb000;
+  --green-dim:  #8a5a00;
+  --green-dark: #3d2400;
+
   flex-shrink: 0;
   display: flex;
   align-items: center;
   gap: 6px;
   padding: 6px 12px;
   background: var(--bg-panel);
-  border-top: 1px solid #001a0c;
+  border-top: 1px solid #241400;
 }
 
 .ctrl-btn {
@@ -561,10 +571,10 @@ body.state-error       #status-dot { color: var(--red); }
 .ctrl-btn:hover {
   border-color: var(--green);
   color: var(--green);
-  background: rgba(0,255,65,0.05);
+  background: rgba(255,176,0,0.05);
 }
 
-.ctrl-btn:active { background: rgba(0,255,65,0.1); }
+.ctrl-btn:active { background: rgba(255,176,0,0.1); }
 
 .ctrl-btn.active {
   border-color: var(--white);

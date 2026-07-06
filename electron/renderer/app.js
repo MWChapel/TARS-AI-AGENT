@@ -6,6 +6,7 @@
 const app = {
   state: 'idle',          // mirrors main-process AppState
   ttsEnabled: true,
+  idlePromptEnabled: true,
   whisperReady: false,
   sessionStart: Date.now(),
 
@@ -36,6 +37,7 @@ const els = {
   inputOverlay:  $('input-overlay'),
   textInput:     $('text-input'),
   ttsLbl:        $('tts-lbl'),
+  idleLbl:       $('idle-lbl'),
   aWhisper:      $('a-whisper'),
   aWhisperProg:  $('a-whisper-prog'),
   aTokIn:        $('a-tok-in'),
@@ -50,6 +52,7 @@ const els = {
   aHumor:        $('a-humor'),
   aHonesty:      $('a-honesty'),
   aTts:          $('a-tts'),
+  aIdle:         $('a-idle'),
   aVoiceEngine:  $('a-voice-engine'),
   aVoiceLabel:   $('a-voice-label'),
   oracleTarot:       $('oracle-tarot'),
@@ -445,6 +448,7 @@ $('btn-clear').addEventListener('click', () => {
 });
 
 $('btn-tts').addEventListener('click', () => window.tars.toggleTTS());
+$('btn-idle').addEventListener('click', () => window.tars.toggleIdlePrompt());
 $('btn-stop').addEventListener('click', () => window.tars.stopTTS());
 $('btn-quit').addEventListener('click', () => window.tars.quit());
 
@@ -473,6 +477,10 @@ document.addEventListener('keydown', (e) => {
     case 't':
     case 'T':
       window.tars.toggleTTS();
+      break;
+    case 'i':
+    case 'I':
+      window.tars.toggleIdlePrompt();
       break;
     case 's':
     case 'S':
@@ -572,6 +580,12 @@ window.tars.on('tts-state', ({ enabled }) => {
   els.aTts.textContent   = enabled ? 'ON' : 'OFF';
 });
 
+window.tars.on('idle-prompt-state', ({ enabled }) => {
+  app.idlePromptEnabled = enabled;
+  els.idleLbl.textContent = `IDLE:${enabled ? 'ON' : 'OFF'}`;
+  els.aIdle.textContent   = enabled ? 'ON' : 'OFF';
+});
+
 // ── Init ──────────────────────────────────────────────────────────────────────
 
 window.addEventListener('DOMContentLoaded', async () => {
@@ -588,10 +602,13 @@ window.addEventListener('DOMContentLoaded', async () => {
   els.aHonesty.textContent = cfg.honesty + '%';
   els.aTts.textContent     = cfg.ttsEnabled ? 'ON' : 'OFF';
   els.ttsLbl.textContent   = `TTS:${cfg.ttsEnabled ? 'ON' : 'OFF'}`;
+  els.aIdle.textContent    = cfg.idlePromptEnabled ? 'ON' : 'OFF';
+  els.idleLbl.textContent  = `IDLE:${cfg.idlePromptEnabled ? 'ON' : 'OFF'}`;
   els.aModel.textContent   = cfg.chatModel;
   els.aVoiceEngine.textContent = cfg.voiceEngine;
   els.aVoiceLabel.textContent  = cfg.voiceLabel;
   app.ttsEnabled           = cfg.ttsEnabled;
+  app.idlePromptEnabled    = cfg.idlePromptEnabled;
   app.modelName            = cfg.chatModel;
 
   if (!cfg.whisperEnabled) {

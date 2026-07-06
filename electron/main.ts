@@ -24,6 +24,7 @@ type AppState = 'idle' | 'recording' | 'transcribing' | 'thinking' | 'speaking' 
 let win: BrowserWindow | null = null;
 let appState: AppState = 'idle';
 let ttsEnabled = config.tts.enabled;
+let idlePromptEnabled = config.idlePrompt.enabled;
 
 const recorder = new AudioRecorder();
 const speaker = createSpeaker();
@@ -188,7 +189,7 @@ let idleThresholdMs = randomIdleThreshold();
 
 function startIdleWatch(): void {
   setInterval(() => {
-    if (!config.idlePrompt.enabled) return;
+    if (!idlePromptEnabled) return;
     // backgroundLlmBusy also covers an in-flight Oracle refresh -- appState
     // alone wouldn't catch that, since Oracle generation deliberately doesn't
     // touch appState (it's not a user-facing "thinking" moment).
@@ -262,6 +263,12 @@ ipcMain.on('toggle-tts', () => {
   send('tts-state', { enabled: ttsEnabled });
 });
 
+ipcMain.on('toggle-idle-prompt', () => {
+  idlePromptEnabled = !idlePromptEnabled;
+  sysMsg(`IDLE PROMPT ${idlePromptEnabled ? 'ENABLED' : 'DISABLED'}`);
+  send('idle-prompt-state', { enabled: idlePromptEnabled });
+});
+
 ipcMain.on('stop-tts', () => {
   speaker.stop();
   if (appState === 'speaking') setState('idle');
@@ -282,6 +289,7 @@ ipcMain.handle('get-config', async () => {
     ttsVoice: config.tts.voice,
     voiceEngine: voice.engine,
     voiceLabel: voice.voice,
+    idlePromptEnabled,
   };
 });
 

@@ -9,6 +9,7 @@ contextBridge.exposeInMainWorld('tars', {
   clearHistory:    () => ipcRenderer.send('clear-history'),
   toggleTTS:       () => ipcRenderer.send('toggle-tts'),
   stopTTS:         () => ipcRenderer.send('stop-tts'),
+  toggleIdlePrompt: () => ipcRenderer.send('toggle-idle-prompt'),
   quit:            () => ipcRenderer.send('quit'),
   getConfig:       () => ipcRenderer.invoke('get-config'),
 
@@ -18,6 +19,7 @@ contextBridge.exposeInMainWorld('tars', {
       'state-change', 'whisper-progress', 'whisper-status',
       'token', 'user-message', 'response-complete',
       'system-message', 'tts-state', 'telemetry-spectrum', 'voice-info', 'oracle-reading',
+      'idle-prompt-state',
     ];
     if (allowed.includes(channel)) {
       ipcRenderer.on(channel, (_event, ...args) => cb(...args));
