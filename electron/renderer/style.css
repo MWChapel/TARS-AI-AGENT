@@ -64,6 +64,22 @@ body::after {
 
 /* ── HEADER ───────────────────────────────────────────────────────────────── */
 #header {
+  /* Amber/orange accent scoped to the header only (logo, meta text, telemetry
+     graph, state indicator) -- everything below (mission log, analytics,
+     oracle, status bar, controls, input overlay) keeps the original
+     green/blue scheme. CSS custom properties cascade to descendants, so
+     every var(--green)/var(--blue-*) used by anything inside #header's DOM
+     subtree picks these up automatically -- nothing outside it is affected. */
+  --green:     #ffb000;
+  --green-dim: #8a5a00;
+  /* White instead of amber for these three -- they're used exclusively by the
+     telemetry graph (.telemetry-bar), nothing else in the header references
+     them -- so the graph pops against the surrounding orange rather than
+     blending into it. */
+  --blue-mid:  #ffffff;
+  --blue-dim:  #cfcfcf;
+  --blue-dark: #666666;
+
   flex-shrink: 0;
   background: var(--bg-panel);
   border-bottom: 1px solid var(--green-dim);
@@ -87,7 +103,7 @@ body::after {
   font-size: 11px;
   line-height: 1.1;
   color: var(--green);
-  text-shadow: 0 0 8px var(--green), 0 0 20px rgba(0,255,65,0.3);
+  text-shadow: 0 0 8px var(--green), 0 0 20px rgba(255,176,0,0.3);
   flex-shrink: 0;
   white-space: pre;
 }
@@ -156,14 +172,14 @@ body::after {
   height: 52px;
   display: flex;
   align-items: flex-end;
-  background: rgba(51, 236, 255, 0.06);
+  background: rgba(255,255,255,0.08);
   border: 1px solid var(--blue-dark);
 }
 
 .telemetry-bar .bar-fill {
   width: 100%;
   background: var(--blue-mid);
-  box-shadow: 0 0 8px rgba(51, 236, 255, 0.55);
+  box-shadow: 0 0 8px rgba(255,255,255,0.65);
   /* Near-instant -- the JS animation loop (telemetryAnimate) already does its
      own frame-by-frame smoothing at a much higher rate than the ~320ms audio
      updates. A long CSS transition here was fighting that, perpetually
@@ -193,7 +209,7 @@ body::after {
   font-size: 22px;
   line-height: 1;
   color: var(--green);
-  text-shadow: 0 0 12px var(--green), 0 0 24px rgba(0,255,65,0.4);
+  text-shadow: 0 0 12px var(--green), 0 0 24px rgba(255,176,0,0.4);
   transition: color 0.2s, text-shadow 0.2s;
 }
 
